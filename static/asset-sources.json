@@ -1,0 +1,32 @@
+[
+  {
+    "file": "fonts\\manrope-variable.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/manrope/Manrope%5Bwght%5D.ttf",
+    "sha256": "3ae11c49db0455a3cc33e37d380f20fdb8c7f8b41dc07625c177e3d87a9d6ae6"
+  },
+  {
+    "file": "fonts\\eb-garamond-variable.ttf",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ebgaramond/EBGaramond%5Bwght%5D.ttf",
+    "sha256": "ef9512f92f6d579e5dc75af59a5a4b1b8b47d2eda89e00b954d44520e5369027"
+  },
+  {
+    "file": "vendor\\socket.io.min.js",
+    "url": "https://cdn.jsdelivr.net/npm/socket.io-client@4.8.1/dist/socket.io.min.js",
+    "sha256": "b0e735814f8dcfecd6cdb8a7ce95a297a7e1e5f2727a29e6f5901801d52fa0c5"
+  },
+  {
+    "file": "vendor\\socket.io-LICENSE.txt",
+    "url": "https://cdn.jsdelivr.net/npm/socket.io-client@4.8.1/LICENSE",
+    "sha256": "73cb68c437d59e066f9386ef97be57298df4db119fdbd7d7150817c6dbd9f189"
+  },
+  {
+    "file": "fonts\\manrope-OFL.txt",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/manrope/OFL.txt",
+    "sha256": "58172e0c0fac2cda8a37b348164bb55e44b0e69051e557e92b1d3f6910141f7b"
+  },
+  {
+    "file": "fonts\\eb-garamond-OFL.txt",
+    "url": "https://raw.githubusercontent.com/google/fonts/main/ofl/ebgaramond/OFL.txt",
+    "sha256": "0985066662eb755ed3683ae5482a81a9195b49ce3f7e165cc2388b3dbece7dd7"
+  }
+]

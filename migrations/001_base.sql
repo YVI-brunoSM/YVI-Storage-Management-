@@ -1,0 +1,25 @@
+CREATE TABLE IF NOT EXISTS users (
+ id SERIAL PRIMARY KEY, username TEXT UNIQUE NOT NULL, password_hash TEXT NOT NULL,
+ name TEXT NOT NULL, email TEXT, role TEXT NOT NULL, active INTEGER DEFAULT 1,
+ created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS role_permissions (
+ role TEXT PRIMARY KEY, role_name TEXT NOT NULL, dashboard INTEGER DEFAULT 1,
+ products_view INTEGER DEFAULT 1, products_manage INTEGER DEFAULT 0, costs_view INTEGER DEFAULT 0,
+ categories_manage INTEGER DEFAULT 0, movements_in INTEGER DEFAULT 0, movements_out INTEGER DEFAULT 1,
+ alerts_view INTEGER DEFAULT 1, branches_manage INTEGER DEFAULT 0, users_manage INTEGER DEFAULT 0,
+ reports_export INTEGER DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS categories (id SERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, description TEXT, icon TEXT DEFAULT 'folder');
+CREATE TABLE IF NOT EXISTS branches (id SERIAL PRIMARY KEY, name TEXT UNIQUE NOT NULL, address TEXT, phone TEXT);
+CREATE TABLE IF NOT EXISTS products (
+ id SERIAL PRIMARY KEY, code TEXT UNIQUE NOT NULL, name TEXT NOT NULL, category_id INTEGER NOT NULL REFERENCES categories(id),
+ unit TEXT DEFAULT 'un', current_stock INTEGER DEFAULT 0, min_stock INTEGER DEFAULT 0,
+ purchase_price REAL DEFAULT 0, sale_price REAL DEFAULT 0, location TEXT, created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS movements (
+ id SERIAL PRIMARY KEY, product_id INTEGER REFERENCES products(id), type TEXT NOT NULL CHECK(type IN ('ENTRADA','SAIDA')),
+ quantity INTEGER NOT NULL, unit_price REAL NOT NULL, total_price REAL NOT NULL, branch_id INTEGER REFERENCES branches(id),
+ destination_equipment TEXT, notes TEXT, user_id INTEGER REFERENCES users(id), timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS deleted_products(id INTEGER PRIMARY KEY, name TEXT NOT NULL, code TEXT, category_id INTEGER, deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP);
