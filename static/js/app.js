@@ -2,7 +2,7 @@ import {categoryLabel, iconPicker, pieceCombobox, avatarNode} from './widgets.js
 import {api, ApiError, refreshCsrf, setCsrf, getCsrf} from './http.js';
 
 const $ = id => document.getElementById(id);
-const state = {user:null, view:'dashboard', page:1, search:'', category:'', status:'', cursor:null, cursors:[], socket:null, controller:null, sequence:0, metadata:{categories:[],branches:[]}};
+const state = {user:null, view:'dashboard', branch:'', branchOptions:[], page:1, search:'', category:'', status:'', cursor:null, cursors:[], socket:null, controller:null, sequence:0, metadata:{categories:[],branches:[]}};
 const labels = {dashboard:'Visão geral',products:'Peças e Estoque',movements:'Movimentações',alerts:'Reposição',categories:'Categorias',branches:'Unidades da rede',users:'Usuários e acessos',reports:'Relatórios'};
 const permission = {dashboard:'dashboard',products:'products_view',movements:'products_view',alerts:'alerts_view',categories:'categories_manage',branches:'branches_manage',users:'users_manage',reports:'reports_export'};
 const permissions = {dashboard:'Visão geral',products_view:'Consultar peças e histórico',products_manage:'Gerenciar peças',costs_view:'Consultar e alterar custos',categories_manage:'Gerenciar categorias',movements_in:'Registrar entradas',movements_out:'Registrar saídas',alerts_view:'Consultar reposição',branches_manage:'Gerenciar unidades',users_manage:'Gerenciar usuários e permissões',reports_export:'Exportar relatórios'};
@@ -25,7 +25,7 @@ function select(label,name,value,options) { return field(label,name,value,'selec
 function toast(message) { $('toast').textContent=message;$('toast').hidden=false;clearTimeout(toastTimer);toastTimer=setTimeout(()=>$('toast').hidden=true,5500); }
 function online(ok) { $('connection').textContent=ok?'Dados sincronizados · '+new Date().toLocaleTimeString('pt-BR',{hour:'2-digit',minute:'2-digit'}):'Conexão interrompida · dados podem estar desatualizados';$('connection').classList.toggle('offline',!ok); }
 function pageError(error) { if(error.name==='AbortError')return; if(error.status===401){showLogin(error.message);return;}online(false);const box=$('page-status');box.replaceChildren(el('span',error.message+(error.requestId?' Protocolo: '+error.requestId:'')),button('Tentar novamente',()=>loadPage(),'button small'));box.className='notice error';box.hidden=false; }
-function showLogin(message='') { state.controller?.abort();state.sequence++;state.user=null;state.socket?.disconnect();state.socket=null;state.metadata={categories:[],branches:[]};metadataPromise=null;$('workspace').hidden=true;$('login-panel').hidden=false;$('logout').hidden=true;$('user-name').textContent='';$('profile').hidden=true;$('page').replaceChildren();if($('editor').open){editorCleanup();$('editor').close();}$('editor-content').replaceChildren();if(message){$('login-error').textContent=message;$('login-error').hidden=false;} }
+function showLogin(message='') { state.controller?.abort();state.sequence++;state.user=null;state.branch='';state.branchOptions=[];state.socket?.disconnect();state.socket=null;state.metadata={categories:[],branches:[]};metadataPromise=null;$('workspace').hidden=true;$('login-panel').hidden=false;$('logout').hidden=true;$('user-name').textContent='';$('profile').hidden=true;$('page').replaceChildren();if($('editor').open){editorCleanup();$('editor').close();}$('editor-content').replaceChildren();if(message){$('login-error').textContent=message;$('login-error').hidden=false;} }
 async function metadata() { if(!metadataPromise)metadataPromise=Promise.all([api('/api/categories'),api('/api/branches')]).then(([categories,branches])=>(state.metadata={categories,branches})).catch(e=>{metadataPromise=null;throw e;});return metadataPromise; }
 function applyUser(user) { state.user=user;$('user-name').textContent=user.name;$('profile').hidden=false;$('profile').replaceChildren(avatarNode(user),el('span','Meu perfil')); $('logout').hidden=false;$('login-panel').hidden=true;$('workspace').hidden=false;document.querySelectorAll('[data-permission]').forEach(b=>b.hidden=!can(b.dataset.permission)||(b.dataset.view==='users'&&user.role!=='ADMIN')); }
 function navigate(view) { if(!can(permission[view]))return;Object.assign(state,{view,page:1,search:'',category:'',status:'',cursor:null,cursors:[]});history.replaceState(null,'','#'+view);loadPage(); }
@@ -36,6 +36,8 @@ async function loadPage(silent=false) {
   if(!silent)$('page').setAttribute('aria-busy','true');
   document.querySelectorAll('[data-view]').forEach(b=>{if(b.dataset.view===state.view)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
   try {
+    await refreshBranchFilter(controller.signal);
+    if(sequence!==state.sequence)return;
     const node=await ({dashboard:dashboardPage,products:()=>productsPage(false),alerts:()=>productsPage(true),movements:movementPage,categories:()=>catalogPage('categories'),branches:()=>catalogPage('branches'),users:usersPage,reports:reportsPage}[state.view])();
     if(sequence!==state.sequence)return;
     const focused=document.activeElement;const focusName=focused?.dataset.filter;const start=focused?.selectionStart;
@@ -44,7 +46,24 @@ async function loadPage(silent=false) {
   } catch(error) { if(sequence===state.sequence)pageError(error); }
   finally {if(sequence===state.sequence)$('page').setAttribute('aria-busy','false');}
 }
-function fetchPage(path) { return api(path,{signal:state.controller.signal}); }
+function branchPath(path) { const url=new URL(path,location.origin);if(state.branch)url.searchParams.set('branch_id',state.branch);return url.pathname+url.search; }
+function fetchPage(path) { return api(branchPath(path),{signal:state.controller.signal}); }
+async function refreshBranchFilter(signal) {
+  const rows=await api('/api/branches',{signal});
+  if(signal.aborted)return;
+  state.branchOptions=rows;
+  if(state.branch&&!rows.some(row=>String(row.id)===state.branch)){state.branch='';state.page=1;state.cursor=null;state.cursors=[];toast('A unidade selecionada foi removida. Exibindo todas as unidades.');}
+  const picker=$('branch-filter');
+  const options=[{id:'',name:'Todas as academias'},...rows];
+  if(JSON.stringify(options)!==picker.dataset.options){picker.replaceChildren(...options.map(row=>{const option=el('option',row.name);option.value=row.id;return option;}));picker.dataset.options=JSON.stringify(options);}
+  picker.value=state.branch;
+  picker.closest('.unit-toolbar').classList.toggle('filtered',!!state.branch);
+  const scope={dashboard:'Movimentações desta unidade e saldo central das peças relacionadas.',products:'Peças com movimentações para esta unidade. Saldo e mínimo referem-se ao estoque central.',alerts:'Reposição no estoque central das peças com movimentações para esta unidade.',movements:'Entradas e saídas registradas para esta unidade.',categories:'Categorias das peças com movimentações para esta unidade.',branches:'Cadastro da unidade selecionada.',users:'Usuários que registraram movimentações para esta unidade.',reports:'Exportações limitadas à unidade selecionada. Saldos referem-se ao estoque central.'};
+  const branch=rows.find(row=>String(row.id)===state.branch);
+  $('branch-scope').textContent=branch?branch.name+' · '+scope[state.view]:'Exibindo informações de todas as unidades.';
+}
+function changeBranch(value) { state.branch=value;state.page=1;state.cursor=null;state.cursors=[];$('page').replaceChildren(el('p','Carregando informações da unidade…','notice'));loadPage(); }
+$('branch-filter').addEventListener('change',event=>changeBranch(event.target.value));
 const entryButtons = () => [can('movements_out')&&button('↗ Registrar saída',()=>movementEditor('SAIDA'),'button movement-out'),can('movements_in')&&button('+ Registrar entrada',()=>movementEditor('ENTRADA'),'button movement-in')];
 
 function svgNode(tag,attrs={},text) {
@@ -102,12 +121,12 @@ function flowChart(stats) {
 async function dashboardPage() {
   const stats=await fetchPage('/api/dashboard/stats');const root=el('div');
   const hero=el('div',undefined,'hero');const text=el('div');text.append(el('p','Operação em equilíbrio','eyebrow'),el('h1','O cuidado está nos detalhes.'),el('p','Peças disponíveis. Manutenção em movimento.','muted'));const art=el('div',undefined,'art');art.setAttribute('aria-hidden','true');art.classList.add('shelf-art');art.append(shelfDrawing());hero.append(text,art);root.append(hero);
-  const metrics=el('div',undefined,'metrics');[['Peças cadastradas',stats.total_skus,'SKUs no catálogo'],['Precisam de atenção',stats.low_stock_count,'Inclui peças esgotadas'],['Unidades atendidas',stats.branches,'Destinos da manutenção']].forEach(([label,value,note])=>{const m=el('div',undefined,'metric');m.append(el('p',label,'eyebrow'),el('p',num(value),'value'),el('small',note));metrics.append(m);});root.append(metrics);
+  const metrics=el('div',undefined,'metrics');[[state.branch?'Peças relacionadas':'Peças cadastradas',stats.total_skus,'SKUs no catálogo'],['Precisam de atenção',stats.low_stock_count,'Inclui peças esgotadas no estoque central'],[state.branch?'Unidade selecionada':'Unidades atendidas',stats.branches,'Destinos da manutenção']].forEach(([label,value,note])=>{const m=el('div',undefined,'metric');m.append(el('p',label,'eyebrow'),el('p',num(value),'value'),el('small',note));metrics.append(m);});root.append(metrics);
   if(can('costs_view')){const f=el('div',undefined,'financials');f.append(el('span','Valoração de compra: '+money(stats.purchase_valuation)),el('span','Repasse potencial: '+money(stats.sale_valuation)));root.append(f);}
   root.append(actions(...entryButtons()));
   root.append(flowChart(stats));
   const split=el('div',undefined,'split');const recent=el('section');recent.append(el('div',undefined,'section-heading'));recent.firstChild.append(el('h2','Últimas movimentações'));stats.recent_movements.forEach(m=>{const row=el('div',undefined,'activity');const text=el('div');text.append(el('strong',m.product_name||'Peça legada'),el('small',(m.branch_name_snapshot||'Estoque central')+' · '+date(m.timestamp)));row.append(text,el('span',(m.type==='SAIDA'?'−':'+')+num(m.quantity)+' '+(m.product_unit||''),m.type==='SAIDA'?'movement-out-text':'movement-in-text'));recent.append(row);});if(!stats.recent_movements.length)recent.append(el('p','Ainda não há movimentações.','empty'));
-  const stock=el('section');stock.append(el('div',undefined,'section-heading'));stock.firstChild.append(el('h2','Saldos por medida'));stock.append(table(['Medida','Saldo'],stats.stock_by_unit.map(s=>[cell(s.unit),cell(num(s.quantity),'numeric')])));split.append(recent,stock);root.append(split);
+  const stock=el('section');stock.append(el('div',undefined,'section-heading'));stock.firstChild.append(el('h2','Saldos centrais por medida'));stock.append(table(['Medida','Saldo central'],stats.stock_by_unit.map(s=>[cell(s.unit),cell(num(s.quantity),'numeric')])));split.append(recent,stock);root.append(split);
   if(can('alerts_view'))root.append(button('Ver peças que precisam de reposição',()=>navigate('alerts'),'text-button'));
   return root;
 }
@@ -119,9 +138,9 @@ async function productsPage(alerts) {
   const filters=el('div',undefined,'filters');const search=field('Buscar peça ou localização','search',state.search,'search');search.wrap.className='search';search.input.placeholder='SKU, nome ou prateleira';search.input.dataset.filter='search';let timer;search.input.addEventListener('input',()=>{clearTimeout(timer);timer=setTimeout(()=>{state.search=search.input.value;state.page=1;loadPage(true);},300);});
   const cat=select('Categoria','category',state.category,[{value:'',label:'Todas as categorias'},...meta.categories.map(c=>({value:c.id,label:c.name}))]);cat.input.addEventListener('change',()=>{state.category=cat.input.value;state.page=1;loadPage();});filters.append(search.wrap,cat.wrap);
   if(!alerts){const status=select('Situação','status',state.status,[{value:'',label:'Todas'},{value:'ok',label:'Disponível'},{value:'low',label:'Repor / esgotado'},{value:'out',label:'Esgotado'}]);status.input.addEventListener('change',()=>{state.status=status.input.value;state.page=1;loadPage();});filters.append(status.wrap);}root.append(filters);
-  const headers=['Peça / SKU','Localização','Saldo','Mínimo','Situação'];if(can('costs_view'))headers.push('Custo / repasse');headers.push('Ações');
+  const headers=['Peça / SKU','Localização','Saldo central','Mínimo','Situação'];if(can('costs_view'))headers.push('Custo / repasse');headers.push('Ações');
   root.append(table(headers,data.items.map(p=>{const row=[cell(pieceName(p)),cell(p.location||'—'),cell(num(p.current_stock)+' '+p.unit,'numeric'),cell(num(p.min_stock)+' '+p.unit,'numeric'),cell(badge(p))];if(can('costs_view'))row.push(cell(money(p.purchase_price)+' / '+money(p.sale_price),'numeric'));row.push(cell(actions(can('movements_out')&&button('Saída',()=>movementEditor('SAIDA',p),'button small movement-out'),can('movements_in')&&button('Entrada',()=>movementEditor('ENTRADA',p),'button small movement-in'),can('products_manage')&&button('Editar',()=>productEditor(p),'button small quiet'))));return row;})));
-  const pager=el('div',undefined,'pager');pager.append(el('span',`${data.total} peças · página ${state.page}`));const prev=button('Anterior',()=>{state.page--;loadPage();},'button small');prev.disabled=state.page<=1;const next=button('Próxima',()=>{state.page++;loadPage();},'button small');next.disabled=state.page*data.limit>=data.total;pager.append(actions(prev,next));root.append(pager);return root;
+  const pager=el('div',undefined,'pager');pager.append(el('span',`${data.total} ${data.total===1?'peça':'peças'} · página ${state.page}`));const prev=button('Anterior',()=>{state.page--;loadPage();},'button small');prev.disabled=state.page<=1;const next=button('Próxima',()=>{state.page++;loadPage();},'button small');next.disabled=state.page*data.limit>=data.total;pager.append(actions(prev,next));root.append(pager);return root;
 }
 
 async function movementPage() {
@@ -146,7 +165,7 @@ async function reportsPage() {
   const stock=el('section',undefined,'report');stock.append(el('h2','Estoque de peças'),el('p','Catálogo, saldos, localização e valores autorizados. Até 10.000 linhas.','muted'));const s=field('Filtrar por peça ou localização','report-search','','search');stock.append(s.wrap,button('Baixar CSV de estoque',()=>download('/api/export/csv?target=products&search='+encodeURIComponent(s.input.value),'yvi_estoque.csv'),'button primary'));
   const movements=el('section',undefined,'report');movements.append(el('h2','Histórico de movimentações'),el('p','Entradas, saídas, estornos e responsáveis. Horários exportados em UTC.','muted'));const from=field('De (data local)','from','','date'),to=field('Até (data local, inclusive)','to','','date');const filters=el('div',undefined,'filters');filters.append(from.wrap,to.wrap);movements.append(filters,button('Baixar CSV de movimentações',()=>{const params=new URLSearchParams({target:'movements'});if(from.input.value)params.set('from',new Date(from.input.value+'T00:00:00').toISOString());if(to.input.value){const d=new Date(to.input.value+'T00:00:00');d.setDate(d.getDate()+1);params.set('to',d.toISOString());}download('/api/export/csv?'+params,'yvi_movimentacoes.csv');},'button primary'));root.append(stock,movements);return root;
 }
-async function download(path,name) { try{const blob=await api(path,{blob:true});const url=URL.createObjectURL(blob);const a=el('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){pageError(e);} }
+async function download(path,name) { try{const blob=await api(branchPath(path),{blob:true});const url=URL.createObjectURL(blob);const a=el('a');a.href=url;a.download=name;document.body.append(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),1000);}catch(e){pageError(e);} }
 
 function editor(title,kicker='Cadastro') {
   editorCleanup();editorCleanup=()=>{};$('editor-close').disabled=false;$('editor-content').replaceChildren();$('editor-title').textContent=title;$('editor-kicker').textContent=kicker;
@@ -215,7 +234,7 @@ async function movementEditor(type,selected=null) {
     const meta=await metadata();const ctx=editor(type==='SAIDA'?'Registrar saída':'Registrar entrada','Nova movimentação');
     let currentPiece=selected;
     const quantity=addField(ctx,'Quantidade','quantity','1','number',null,true);quantity.min='.001';quantity.step='.001';
-    addField(ctx,'Unidade de destino','branch_id','','select',[{value:'',label:'Selecione…'},...meta.branches.map(b=>({value:b.id,label:b.name}))],true);
+    addField(ctx,'Unidade de destino','branch_id',state.branch,'select',[{value:'',label:'Selecione…'},...meta.branches.map(b=>({value:b.id,label:b.name}))],true);
     addField(ctx,'Equipamento / aplicação','destination_equipment','','text',null,false,true).maxLength=200;
     addField(ctx,'Observação / motivo','notes','','textarea',null,false,true).maxLength=1000;
     const balance=el('div',undefined,'balance');balance.setAttribute('aria-live','polite');ctx.grid.after(balance);

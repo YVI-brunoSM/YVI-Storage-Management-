@@ -99,14 +99,38 @@ def me():
     return jsonify({'user':public_user(g.user), 'csrf_token':csrf_token(), 'authenticated':True})
 
 
+def selected_branch():
+    """Filter by recorded destination, never reinterpret the central stock balance."""
+    if hasattr(g, 'selected_branch'):
+        return g.selected_branch
+    raw = request.args.get('branch_id', '')
+    g.selected_branch = None
+    if raw:
+        bid = integer(raw, 'branch_id')
+        g.selected_branch = g.conn.execute('SELECT id,name FROM branches WHERE id=%s', (bid,)).fetchone()
+        if not g.selected_branch:
+            raise ApiError('BRANCH_NOT_FOUND', 'Unidade não encontrada. Atualize o filtro.', 404)
+    return g.selected_branch
+
+
+def product_branch_condition(branch):
+    if not branch:
+        return '', []
+    return ' AND EXISTS(SELECT 1 FROM movements scope WHERE scope.product_id=p.id AND scope.branch_id=%s)', [branch['id']]
+
+
 @api.get('/dashboard/stats')
 @require('dashboard')
 def dashboard():
-    stats = g.conn.execute("SELECT count(*) AS total_skus,count(*) FILTER(WHERE current_stock<=min_stock) AS low_stock_count,count(*) FILTER(WHERE current_stock=0) AS out_count,sum(current_stock*purchase_price) AS purchase_valuation,sum(current_stock*sale_price) AS sale_valuation FROM products WHERE active=1").fetchone()
+    branch = selected_branch()
+    product_scope, product_params = product_branch_condition(branch)
+    movement_scope, movement_params = (' AND m.branch_id=%s', [branch['id']]) if branch else ('', [])
+    stats = g.conn.execute("SELECT count(*) AS total_skus,count(*) FILTER(WHERE p.current_stock<=p.min_stock) AS low_stock_count,count(*) FILTER(WHERE p.current_stock=0) AS out_count,sum(p.current_stock*p.purchase_price) AS purchase_valuation,sum(p.current_stock*p.sale_price) AS sale_valuation FROM products p WHERE p.active=1"+product_scope, product_params).fetchone()
     if not g.user['permissions']['costs_view']:
         stats.pop('purchase_valuation'); stats.pop('sale_valuation')
-    stats['stock_by_unit'] = g.conn.execute('SELECT unit,sum(current_stock) AS quantity FROM products WHERE active=1 GROUP BY unit ORDER BY unit').fetchall()
-    stats['branches'] = g.conn.execute('SELECT count(*) AS n FROM branches').fetchone()['n']
+    stats['stock_by_unit'] = g.conn.execute('SELECT p.unit,sum(p.current_stock) AS quantity FROM products p WHERE p.active=1'+product_scope+' GROUP BY p.unit ORDER BY p.unit', product_params).fetchall()
+    stats['branches'] = 1 if branch else g.conn.execute('SELECT count(*) AS n FROM branches').fetchone()['n']
+    stats['selected_branch'] = branch
     today = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(hour=0, minute=0, second=0, microsecond=0)
     start, end = today - timedelta(days=6), today + timedelta(days=1)
     stats['flow_days'] = [(start + timedelta(days=i)).date().isoformat() for i in range(7)]
@@ -115,14 +139,19 @@ def dashboard():
                coalesce(m.product_unit,p.unit) AS unit, m.type, sum(m.quantity) AS quantity
         FROM movements m LEFT JOIN products p ON p.id=m.product_id
         WHERE m.timestamp >= %s AND m.timestamp < %s
+    """+movement_scope+"""
         GROUP BY 1,2,3 ORDER BY 1,2,3
-    """, (start,end)).fetchall()
-    stats['recent_movements'] = [movement_public(m) for m in g.conn.execute('SELECT id,type,quantity,product_name,product_code,product_unit,actor_name,branch_name_snapshot,timestamp FROM movements ORDER BY timestamp DESC,id DESC LIMIT 5')]
+    """, (start,end,*movement_params)).fetchall()
+    stats['recent_movements'] = [movement_public(m) for m in g.conn.execute('SELECT id,type,quantity,product_name,product_code,product_unit,actor_name,branch_name_snapshot,timestamp FROM movements m WHERE true'+movement_scope+' ORDER BY timestamp DESC,id DESC LIMIT 5', movement_params)]
     return jsonify(stats)
 
 
 def product_query(alerts=False):
     conditions, params = ['p.active=1'], []
+    branch = selected_branch()
+    if branch:
+        conditions.append('EXISTS(SELECT 1 FROM movements scope WHERE scope.product_id=p.id AND scope.branch_id=%s)')
+        params.append(branch['id'])
     search = text(request.args, 'search', maximum=100)
     if search:
         conditions.append('(p.name ILIKE %s OR p.code ILIKE %s OR p.location ILIKE %s)')
@@ -337,7 +366,10 @@ def immutable_movement(mid):
 
 def movement_query():
     conditions,params=['true'],[]
-    for field in ('product_id','branch_id'):
+    branch = selected_branch()
+    if branch:
+        conditions.append('m.branch_id=%s'); params.append(branch['id'])
+    for field in ('product_id',):
         if request.args.get(field):
             conditions.append('m.'+field+'=%s');params.append(integer(request.args[field],field))
     for field,op in (('from','>='),('to','<')):
@@ -369,13 +401,17 @@ def movements():
 def categories():
     if not any(g.user['permissions'][p] for p in ('products_view','categories_manage','alerts_view','movements_in','movements_out')):
         permitted('products_view')
-    return jsonify(g.conn.execute('SELECT c.*,count(p.id) AS product_count FROM categories c LEFT JOIN products p ON p.category_id=c.id AND p.active=1 GROUP BY c.id ORDER BY c.name').fetchall())
+    branch = selected_branch()
+    scope, params = product_branch_condition(branch)
+    having = ' HAVING count(p.id)>0' if branch else ''
+    return jsonify(g.conn.execute('SELECT c.*,count(p.id) AS product_count FROM categories c LEFT JOIN products p ON p.category_id=c.id AND p.active=1'+scope+' GROUP BY c.id'+having+' ORDER BY c.name', params).fetchall())
 
 
 @api.get('/branches')
 @require()
 def branches():
-    return jsonify(g.conn.execute('SELECT * FROM branches ORDER BY name').fetchall())
+    branch = selected_branch()
+    return jsonify(g.conn.execute('SELECT * FROM branches'+(' WHERE id=%s' if branch else '')+' ORDER BY name', (branch['id'],) if branch else ()).fetchall())
 
 
 def catalog_write(table, fields, resource_id=None):
@@ -442,7 +478,9 @@ def delete_branch(bid):
 @api.get('/users')
 @require('users_manage',admin=True)
 def users():
-    return jsonify(g.conn.execute('SELECT id,username,name,email,role,active,version,created_at,avatar_revision,(avatar IS NOT NULL) AS has_avatar FROM users ORDER BY name').fetchall())
+    branch = selected_branch()
+    where = ' WHERE EXISTS(SELECT 1 FROM movements m WHERE m.user_id=u.id AND m.branch_id=%s)' if branch else ''
+    return jsonify(g.conn.execute('SELECT id,username,name,email,role,active,version,created_at,avatar_revision,(avatar IS NOT NULL) AS has_avatar FROM users u'+where+' ORDER BY name', (branch['id'],) if branch else ()).fetchall())
 
 
 def user_fields(data, create=False):
@@ -549,7 +587,7 @@ def export():
         where,params=product_query()
         rows=g.conn.execute('SELECT p.code,p.name,c.name AS category,p.unit,p.current_stock,p.min_stock,p.location,p.purchase_price,p.sale_price FROM products p JOIN categories c ON c.id=p.category_id WHERE '+where+' ORDER BY p.code LIMIT 10001',params).fetchall()
         columns=['code','name','category','unit','current_stock','min_stock','location']+(['purchase_price','sale_price'] if costs else [])
-        headers=['SKU','Peça','Categoria','Unidade','Saldo','Mínimo','Localização']+(['Custo','Repasse'] if costs else [])
+        headers=['SKU','Peça','Categoria','Unidade','Saldo central','Mínimo','Localização']+(['Custo','Repasse'] if costs else [])
     else:
         where,params=movement_query()
         rows=[movement_public(row) for row in g.conn.execute('SELECT m.* FROM movements m WHERE '+where+' ORDER BY timestamp DESC,id DESC LIMIT 10001',params).fetchall()]
