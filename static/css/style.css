@@ -71,6 +71,7 @@
 /* Public privacy page and dashboard footer. */
 .page-footer{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--line);font-size:.875rem;color:var(--muted)}
 .page-footer a,.privacy-page a{color:inherit;text-underline-offset:4px}
+.legal-links{display:flex;gap:1.25rem;flex-wrap:wrap}
 .privacy-page{max-width:900px;margin:0 auto;padding:3rem 1.5rem;line-height:1.75}
 .privacy-page h1{font-size:clamp(2rem,5vw,3.5rem);line-height:1.2}
 .privacy-page section{margin-top:2rem}

@@ -165,6 +165,10 @@ def create_app(config=None):
     def privacy():
         return render_template('privacy.html')
 
+    @app.get('/termos-de-servico')
+    def terms():
+        return render_template('terms.html')
+
     @app.get('/health/live')
     def live():
         return jsonify({'status': 'ok'})

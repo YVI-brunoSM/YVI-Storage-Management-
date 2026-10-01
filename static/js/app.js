@@ -132,7 +132,7 @@ async function dashboardPage() {
   const split=el('div',undefined,'split');const recent=el('section');recent.append(el('div',undefined,'section-heading'));recent.firstChild.append(el('h2','Últimas movimentações'));stats.recent_movements.forEach(m=>{const row=el('div',undefined,'activity');const text=el('div');text.append(el('strong',m.product_name||'Peça legada'),el('small',(m.branch_name_snapshot||'Estoque central')+' · '+date(m.timestamp)));row.append(text,el('span',(m.type==='SAIDA'?'−':'+')+num(m.quantity)+' '+(m.product_unit||''),m.type==='SAIDA'?'movement-out-text':'movement-in-text'));recent.append(row);});if(!stats.recent_movements.length)recent.append(el('p','Ainda não há movimentações.','empty'));
   const stock=el('section');stock.append(el('div',undefined,'section-heading'));stock.firstChild.append(el('h2','Saldos centrais por medida'));stock.append(table(['Medida','Saldo central'],stats.stock_by_unit.map(s=>[cell(s.unit),cell(num(s.quantity),'numeric')])));split.append(recent,stock);root.append(split);
   if(can('alerts_view'))root.append(button('Ver peças que precisam de reposição',()=>navigate('alerts'),'text-button'));
-  const footer=el('footer',undefined,'page-footer');const privacy=el('a','Política de privacidade');privacy.href='/politica-de-privacidade';footer.append(el('span','YVI · Gestão de peças'),privacy);root.append(footer);
+  const footer=el('footer',undefined,'page-footer');const links=el('span',undefined,'legal-links');const privacy=el('a','Política de privacidade');privacy.href='/politica-de-privacidade';const terms=el('a','Termos de Serviço');terms.href='/termos-de-servico';links.append(privacy,terms);footer.append(el('span','YVI · Gestão de peças'),links);root.append(footer);
   return root;
 }
 

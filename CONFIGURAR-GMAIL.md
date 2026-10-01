@@ -43,6 +43,8 @@ O sistema pede `openid email` para confirmar que a conta conectada é o Gmail re
 
 Em **Branding / Marca**, informe a página inicial `https://yvi-storage--management.up.railway.app/` e a política de privacidade `https://yvi-storage--management.up.railway.app/politica-de-privacidade`. Publique esta versão do sistema antes de cadastrar o link e confirme que ele abre em uma janela anônima, sem login. A política também fica no rodapé da Visão geral. Utilize um nome de aplicativo coerente com a política, como **YVI — Notificações**.
 
+O endereço público dos **Termos de Serviço** é `https://yvi-storage--management.up.railway.app/termos-de-servico`. Após publicar a atualização, informe esse endereço no campo correspondente de **Branding / Marca** e confira que abre sem login.
+
 Em **Público-alvo**, use **Externo**, pois a conta é Gmail comum. Se estiver em Teste, adicione `yvigestaofitness@gmail.com` como usuário de teste. Os destinatários não precisam ser adicionados.
 
 Para operação contínua, altere o status para **Em produção / Publicar aplicativo** antes da autorização definitiva. Em Teste, o token de renovação desse acesso expira em sete dias. Publicar não é o mesmo que concluir verificação do Google e não torna o estoque público. O Google prevê exceções de verificação para uso pessoal limitado; caso o console exija uma etapa adicional, registre a mensagem e peça orientação. Autorizações ainda podem ser revogadas depois de publicadas, por exemplo por alterações na conta.
