@@ -228,7 +228,10 @@ async function productEditor(old=null) {
     const unit=addField(ctx,'Unidade de medida','unit',p.unit||'un','select',['un','m','par','cx','kg'].map(v=>({value:v,label:v})),true);if(old)unit.disabled=true;
     addField(ctx,'Nome da peça','name',p.name||'','text',null,true,true).maxLength=200;
     addField(ctx,'Categoria','category_id',p.category_id||'','select',[{value:'',label:'Selecione…'},...meta.categories.map(c=>({value:c.id,label:c.name}))],true);
-    addField(ctx,'Localização','location',p.location||'').maxLength=200;
+    const location=old?(p.location||''):(meta.branches.find(b=>String(b.id)===state.branch)?.name||'');
+    const locations=[{value:'',label:'Estoque central'},...meta.branches.map(b=>({value:b.name,label:b.name}))];
+    if(location&&!locations.some(option=>option.value===location))locations.push({value:location,label:location+' (localização atual)'});
+    addField(ctx,'Unidade da peça','location',location,'select',locations);
     const min=addField(ctx,'Estoque mínimo','min_stock',p.min_stock??'0','number',null,true);min.min=0;min.step='.001';
     if(!old){const initial=addField(ctx,'Saldo inicial','current_stock','0','number',null,true);initial.min=0;initial.step='.001';if(!can('movements_in'))initial.readOnly=true;}
     if(can('costs_view'))for(const [name,label] of [['purchase_price','Custo de compra (R$)'],['sale_price','Valor de repasse (R$)']]){const input=addField(ctx,label,name,p[name]??'0','number',null,true);input.min=0;input.step='.01';}
