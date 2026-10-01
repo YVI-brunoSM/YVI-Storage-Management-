@@ -4,11 +4,12 @@ import {notificationsPage} from './notifications.js';
 
 const $ = id => document.getElementById(id);
 const state = {user:null, view:'dashboard', branch:'', branchOptions:[], page:1, search:'', category:'', status:'', cursor:null, cursors:[], socket:null, controller:null, sequence:0, metadata:{categories:[],branches:[]}};
-const labels = {dashboard:'Visão geral',products:'Peças e Estoque',movements:'Movimentações',alerts:'Reposição',categories:'Categorias',branches:'Unidades da rede',users:'Usuários e acessos',reports:'Relatórios',notifications:'Notificações'};
-const permission = {dashboard:'dashboard',products:'products_view',movements:'products_view',alerts:'alerts_view',categories:'categories_manage',branches:'branches_manage',users:'users_manage',reports:'reports_export',notifications:'users_manage'};
+const labels = {dashboard:'Visão geral',products:'Peças e Estoque',movements:'Movimentações',alerts:'Reposição',categories:'Categorias',branches:'Unidades da rede',users:'Usuários e acessos',notifications:'Notificações',reports:'Relatórios',settings:'Configurações'};
+const permission = {dashboard:'dashboard',products:'products_view',movements:'products_view',alerts:'alerts_view',categories:'categories_manage',branches:'branches_manage',users:'users_manage',reports:'reports_export',notifications:'users_manage',settings:'users_manage'};
 const permissions = {dashboard:'Visão geral',products_view:'Consultar peças e histórico',products_manage:'Gerenciar peças',costs_view:'Consultar e alterar custos',categories_manage:'Gerenciar categorias',movements_in:'Registrar entradas',movements_out:'Registrar saídas',alerts_view:'Consultar reposição',branches_manage:'Gerenciar unidades',users_manage:'Gerenciar usuários e permissões',reports_export:'Exportar relatórios'};
 let metadataPromise, toastTimer, reloadTimer, editorCleanup = () => {};
-const can = p => !!state.user?.permissions[p];
+const can = p => !!state.user?.permissions[p]&&!(state.user.branch_restricted&&['products_manage','categories_manage','branches_manage'].includes(p));
+const canView = view => can(permission[view])&&(!['settings','users','notifications'].includes(view)||state.user?.role==='ADMIN');
 const num = value => new Intl.NumberFormat('pt-BR',{maximumFractionDigits:3}).format(Number(value));
 const money = value => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(value || 0));
 const date = value => value ? new Date(value).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'}) : '—';
@@ -28,8 +29,8 @@ function online(ok) { $('connection').textContent=ok?'Dados sincronizados · '+n
 function pageError(error) { if(error.name==='AbortError')return; if(error.status===401){showLogin(error.message);return;}online(false);const box=$('page-status');box.replaceChildren(el('span',error.message+(error.requestId?' Protocolo: '+error.requestId:'')),button('Tentar novamente',()=>loadPage(),'button small'));box.className='notice error';box.hidden=false; }
 function showLogin(message='') { state.controller?.abort();state.sequence++;state.user=null;state.branch='';state.branchOptions=[];state.socket?.disconnect();state.socket=null;state.metadata={categories:[],branches:[]};metadataPromise=null;$('workspace').hidden=true;$('login-panel').hidden=false;$('logout').hidden=true;$('user-name').textContent='';$('profile').hidden=true;$('page').replaceChildren();if($('editor').open){editorCleanup();$('editor').close();}$('editor-content').replaceChildren();if(message){$('login-error').textContent=message;$('login-error').hidden=false;} }
 async function metadata() { if(!metadataPromise)metadataPromise=Promise.all([api('/api/categories'),api('/api/branches')]).then(([categories,branches])=>(state.metadata={categories,branches})).catch(e=>{metadataPromise=null;throw e;});return metadataPromise; }
-function applyUser(user) { state.user=user;$('user-name').textContent=user.name;$('profile').hidden=false;$('profile').replaceChildren(avatarNode(user),el('span','Meu perfil')); $('logout').hidden=false;$('login-panel').hidden=true;$('workspace').hidden=false;document.querySelectorAll('[data-permission]').forEach(b=>b.hidden=!can(b.dataset.permission)||(['users','notifications'].includes(b.dataset.view)&&user.role!=='ADMIN')); }
-function navigate(view) { if(!can(permission[view]))return;Object.assign(state,{view,page:1,search:'',category:'',status:'',cursor:null,cursors:[]});history.replaceState(null,'','#'+view);loadPage(); }
+function applyUser(user) { state.user=user;$('user-name').textContent=user.name;$('profile').hidden=false;$('profile').replaceChildren(avatarNode(user),el('span','Meu perfil')); $('logout').hidden=false;$('login-panel').hidden=true;$('workspace').hidden=false;document.querySelectorAll('[data-permission]').forEach(b=>b.hidden=!canView(b.dataset.view)); }
+function navigate(view) { if(!canView(view))return;Object.assign(state,{view,page:1,search:'',category:'',status:'',cursor:null,cursors:[]});history.replaceState(null,'','#'+view);loadPage(); }
 
 async function loadPage(silent=false) {
   if(!state.user)return;
@@ -40,7 +41,7 @@ async function loadPage(silent=false) {
   try {
     await refreshBranchFilter(controller.signal);
     if(sequence!==state.sequence)return;
-    const node=await ({dashboard:dashboardPage,products:()=>productsPage(false),alerts:()=>productsPage(true),movements:movementPage,categories:()=>catalogPage('categories'),branches:()=>catalogPage('branches'),users:usersPage,reports:reportsPage,notifications:()=>notificationsPage({signal:controller.signal,cursor:state.cursor,onRefresh:()=>loadPage(),onPage:cursor=>{state.cursor=cursor;return loadPage();}})}[state.view])();
+    const node=await ({dashboard:dashboardPage,products:()=>productsPage(false),alerts:()=>productsPage(true),movements:movementPage,categories:()=>catalogPage('categories'),branches:()=>catalogPage('branches'),users:usersPage,reports:reportsPage,settings:settingsPage,notifications:()=>notificationsPage({signal:controller.signal,cursor:state.cursor,onRefresh:()=>loadPage(),onPage:cursor=>{state.cursor=cursor;return loadPage();}})}[state.view])();
     if(sequence!==state.sequence)return;
     const focused=document.activeElement;const focusName=focused?.dataset.filter;const start=focused?.selectionStart;
     $('page').replaceChildren(node);$('page-status').hidden=true;online(node.dataset.loadError!=='true');
@@ -51,20 +52,22 @@ async function loadPage(silent=false) {
 function branchPath(path) { const url=new URL(path,location.origin);if(state.branch)url.searchParams.set('branch_id',state.branch);return url.pathname+url.search; }
 function fetchPage(path) { return api(branchPath(path),{signal:state.controller.signal}); }
 async function refreshBranchFilter(signal) {
-  $('branch-filter').closest('.unit-toolbar').hidden=state.view==='notifications';
-  if(state.view==='notifications')return;
+  $('branch-filter').closest('.unit-toolbar').hidden=['notifications','settings'].includes(state.view);
+  if(['notifications','settings'].includes(state.view))return;
   const rows=await api('/api/branches',{signal});
   if(signal.aborted)return;
   state.branchOptions=rows;
-  if(state.branch&&!rows.some(row=>String(row.id)===state.branch)){state.branch='';state.page=1;state.cursor=null;state.cursors=[];toast('A unidade selecionada foi removida. Exibindo todas as unidades.');}
+  if(state.branch&&!rows.some(row=>String(row.id)===state.branch)){state.branch='';state.page=1;state.cursor=null;state.cursors=[];toast('A unidade selecionada não está mais disponível. Exibindo as unidades autorizadas.');}
   const picker=$('branch-filter');
-  const options=[{id:'',name:'Todas as academias'},...rows];
+  const restricted=state.user.branch_restricted;const single=restricted&&rows.length===1;
+  if(single)state.branch=String(rows[0].id);picker.disabled=restricted&&rows.length<=1;
+  const options=[...(single?[]:[{id:'',name:restricted?'Todas as unidades autorizadas':'Todas as academias'}]),...rows];
   if(JSON.stringify(options)!==picker.dataset.options){picker.replaceChildren(...options.map(row=>{const option=el('option',row.name);option.value=row.id;return option;}));picker.dataset.options=JSON.stringify(options);}
   picker.value=state.branch;
   picker.closest('.unit-toolbar').classList.toggle('filtered',!!state.branch);
-  const scope={dashboard:'Movimentações desta unidade e saldo central das peças relacionadas.',products:'Peças com movimentações para esta unidade. Saldo e mínimo referem-se ao estoque central.',alerts:'Reposição no estoque central das peças com movimentações para esta unidade.',movements:'Entradas e saídas registradas para esta unidade.',categories:'Categorias das peças com movimentações para esta unidade.',branches:'Cadastro da unidade selecionada.',users:'Usuários que registraram movimentações para esta unidade.',reports:'Exportações limitadas à unidade selecionada. Saldos referem-se ao estoque central.'};
+  const scope={dashboard:'Movimentações desta unidade e saldo central das peças relacionadas.',products:'Peças com movimentações para esta unidade. Saldo e mínimo referem-se ao estoque central.',alerts:'Reposição no estoque central das peças com movimentações para esta unidade.',movements:'Entradas e saídas registradas para esta unidade.',categories:'Categorias das peças com movimentações para esta unidade.',branches:'Cadastro da unidade selecionada.',users:'Usuários com acesso atribuído ou movimentações para esta unidade.',reports:'Exportações limitadas à unidade selecionada. Saldos referem-se ao estoque central.'};
   const branch=rows.find(row=>String(row.id)===state.branch);
-  $('branch-scope').textContent=branch?branch.name+' · '+scope[state.view]:'Exibindo informações de todas as unidades.';
+  $('branch-scope').textContent=branch?branch.name+' · '+scope[state.view]:(restricted?'Acesso restrito às unidades definidas pelo administrador. Saldos referem-se ao estoque central.':'Exibindo informações de todas as unidades.');
 }
 function changeBranch(value) { state.branch=value;state.page=1;state.cursor=null;state.cursors=[];$('page').replaceChildren(el('p','Carregando informações da unidade…','notice'));loadPage(); }
 $('branch-filter').addEventListener('change',event=>changeBranch(event.target.value));
@@ -161,8 +164,16 @@ async function catalogPage(kind) {
 }
 
 async function usersPage() {
-  const rows=await fetchPage('/api/users');const root=el('div');root.append(heading('Usuários e acessos','Contas, perfis e permissões da equipe.',button('Permissões por perfil',()=>permissionsEditor()),button('+ Novo usuário',()=>userEditor(),'button primary')));
-  root.append(table(['Nome / login','E-mail','Perfil','Status','Ações'],rows.map(u=>{const name=el('div',undefined,'category-label');const identity=el('div');identity.append(el('strong',u.name),el('span',u.username,'sub'));name.append(avatarNode(u),identity);return [cell(name),cell(u.email),cell(u.role),cell(u.active?'Ativo':'Inativo'),cell(actions(button('Editar',()=>userEditor(u),'button small'),u.id!==state.user.id&&button(u.active?'Desativar':'Ativar',()=>toggleUserEditor(u),'button small quiet')))];})));return root;
+  const [rows,branches]=await Promise.all([fetchPage('/api/users'),api('/api/branches')]);const root=el('div');root.append(heading('Usuários e acessos','Contas, perfis e unidades autorizadas da equipe.',button('+ Novo usuário',()=>userEditor(),'button primary')));
+  root.append(table(['Nome / login','E-mail','Perfil','Unidades autorizadas','Status','Ações'],rows.map(u=>{const name=el('div',undefined,'category-label');const identity=el('div');identity.append(el('strong',u.name),el('span',u.username,'sub'));name.append(avatarNode(u),identity);return [cell(name),cell(u.email),cell(u.role),cell(u.branch_restricted?branches.filter(b=>u.branch_ids.includes(b.id)).map(b=>b.name).join(', ')||'Nenhuma unidade':'Todas as academias'),cell(u.active?'Ativo':'Inativo'),cell(actions(button('Editar',()=>userEditor(u),'button small'),u.id!==state.user.id&&button(u.active?'Desativar':'Ativar',()=>toggleUserEditor(u),'button small quiet')))];})));return root;
+}
+
+async function settingsPage() {
+  const data=await api('/api/admin/settings');const root=el('div');root.append(heading('Configurações','Administração do sistema · acesso exclusivo de administradores.'));
+  const cards=[['Usuários e unidades autorizadas',data.active_users+' usuários ativos. Defina o perfil e as academias que cada pessoa pode acessar.',button('Gerenciar usuários',()=>navigate('users'))],['Permissões por perfil','Defina os recursos liberados para administradores, gerentes e operadores.',button('Editar permissões',()=>permissionsEditor())],['Notificações por e-mail','Gerencie a conexão Gmail, os alertas de estoque e o histórico de envios.',button('Abrir Notificações',()=>navigate('notifications'))]];
+  if(can('branches_manage'))cards.push(['Unidades da rede',data.branches+' unidades cadastradas.',button('Gerenciar unidades',()=>navigate('branches'))]);
+  if(can('categories_manage'))cards.push(['Categorias e ícones','Organize o catálogo e personalize os ícones.',button('Gerenciar categorias',()=>navigate('categories'))]);
+  for(const [title,copy,action] of cards){const card=el('section',undefined,'notification-card');card.append(el('h2',title),el('p',copy,'muted'),actions(action));root.append(card);}return root;
 }
 
 async function reportsPage() {
@@ -263,8 +274,16 @@ function catalogEditor(kind,row=null) {
 function deleteEditor(kind,row) {
   const ctx=editor(kind==='products'?'Arquivar peça':'Excluir cadastro','Revisar ação');ctx.grid.append(el('p',kind==='products'?`Arquivar “${row.name}”? O saldo deve estar zerado e o histórico será mantido.`:`Excluir “${row.name}”? Cadastros com referências não podem ser excluídos.`,'full'));bindSave(ctx,()=>({path:'/api/'+kind+'/'+row.id,method:'DELETE',body:{version:row.version}}),'Confirmar');
 }
-function userEditor(user=null) {
-  const ctx=editor(user?'Editar usuário':'Novo usuário');addField(ctx,'Nome completo','name',user?.name||'','text',null,true,true);addField(ctx,'Login','username',user?.username||'','text',null,true);addField(ctx,'E-mail','email',user?.email||'','email');addField(ctx,'Perfil','role',user?.role||'OPERATOR','select',[{value:'OPERATOR',label:'Operador'},{value:'MANAGER',label:'Gerente'},{value:'ADMIN',label:'Administrador'}],true);const pass=addField(ctx,user?'Nova senha (opcional)':'Senha inicial','password','','password',null,!user);pass.minLength=12;pass.maxLength=128;pass.autocomplete='new-password';bindSave(ctx,data=>({path:'/api/users'+(user?'/'+user.id:''),method:user?'PUT':'POST',body:{...data,...(user?{version:user.version}:{})}}));
+async function userEditor(user=null) {
+  try{
+    const branches=await api('/api/branches');const ctx=editor(user?'Editar usuário':'Novo usuário');addField(ctx,'Nome completo','name',user?.name||'','text',null,true,true);addField(ctx,'Login','username',user?.username||'','text',null,true);addField(ctx,'E-mail','email',user?.email||'','email');const role=addField(ctx,'Perfil','role',user?.role||'OPERATOR','select',[{value:'OPERATOR',label:'Operador'},{value:'MANAGER',label:'Gerente'},{value:'ADMIN',label:'Administrador'}],true);const pass=addField(ctx,user?'Nova senha (opcional)':'Senha inicial','password','','password',null,!user);pass.minLength=12;pass.maxLength=128;pass.autocomplete='new-password';
+    const mode=addField(ctx,'Acesso às unidades','unit_access',user?(user.branch_restricted?'selected':'all'):'selected','select',[{value:'selected',label:'Somente as unidades selecionadas'},{value:'all',label:'Todas as academias'}],true,true);
+    const group=el('fieldset',undefined,'unit-access full');group.append(el('legend','Unidades autorizadas'));const checks=[];
+    for(const branch of branches){const label=el('label',undefined,'unit-access-option');const input=el('input');input.type='checkbox';input.checked=!!user?.branch_ids?.includes(branch.id);input.value=branch.id;label.append(input,el('span',branch.name));group.append(label);checks.push(input);}
+    const note=el('p','Uma unidade fixa o filtro. Várias unidades permitem alternar somente entre as selecionadas.','muted full');ctx.grid.append(group,note);
+    const sync=()=>{const admin=role.value==='ADMIN';mode.disabled=admin;group.hidden=admin||mode.value==='all';note.textContent=admin?'Administradores mantêm acesso geral para administrar o sistema.':'O acesso será limitado no servidor. Cadastros centrais compartilhados exigem um usuário com acesso geral.';};role.addEventListener('change',sync);mode.addEventListener('change',sync);sync();
+    bindSave(ctx,data=>({path:'/api/users'+(user?'/'+user.id:''),method:user?'PUT':'POST',body:{...data,branch_ids:role.value==='ADMIN'||mode.value==='all'?null:checks.filter(c=>c.checked).map(c=>Number(c.value)),...(user?{version:user.version}:{})}}));
+  }catch(error){pageError(error);}
 }
 function toggleUserEditor(user) {
   const ctx=editor(user.active?'Desativar usuário':'Ativar usuário','Controle de acesso');ctx.grid.append(el('p',`${user.name}: ${user.active?'as sessões serão encerradas e o histórico preservado':'o acesso será reativado'}.`,'full'));bindSave(ctx,()=>({path:'/api/users/'+user.id+'/active',method:'PUT',body:{version:user.version,active:!user.active}}),'Confirmar');
@@ -277,13 +296,13 @@ function connectSocket() {
   state.socket?.disconnect();
   if(typeof window.io!=='function')return;
   const socket=window.io({auth:{csrf:getCsrf()},transports:['websocket','polling']});state.socket=socket;
-  socket.on('update_data',()=>{clearTimeout(reloadTimer);reloadTimer=setTimeout(async()=>{try{const me=await api('/api/me');applyUser(me.user);metadataPromise=null;if(!can(permission[state.view]))navigate(Object.keys(labels).find(v=>can(permission[v]))||'dashboard');else if(!$('editor').open)loadPage(true);else toast('Há atualizações da equipe. O saldo será conferido ao confirmar.');}catch(e){pageError(e);}},500);});
+  socket.on('update_data',()=>{clearTimeout(reloadTimer);reloadTimer=setTimeout(async()=>{try{const me=await api('/api/me');applyUser(me.user);metadataPromise=null;if(!canView(state.view))navigate(Object.keys(labels).find(v=>canView(v))||'dashboard');else if(!$('editor').open)loadPage(true);else toast('Há atualizações da equipe. O saldo será conferido ao confirmar.');}catch(e){pageError(e);}},500);});
   socket.on('disconnect',()=>{if(state.user)online(false);});socket.on('connect_error',()=>online(false));
   socket.on('connect',()=>{if(state.user)loadPage(true);});
   socket.on('session_revoked',()=>showLogin('Seu acesso foi atualizado. Entre novamente.'));
 }
 async function boot() {
-  try{await refreshCsrf();const data=await api('/api/me');setCsrf(data.csrf_token);applyUser(data.user);const requested=location.hash.slice(1);state.view=can(permission[requested])?requested:Object.keys(labels).find(v=>can(permission[v]))||'dashboard';if(!can(permission[state.view])){$('page').replaceChildren(el('p','Seu perfil ainda não possui módulos liberados. Procure um administrador.','notice'));return;}await loadPage();connectSocket();}
+  try{await refreshCsrf();const data=await api('/api/me');setCsrf(data.csrf_token);applyUser(data.user);const requested=location.hash.slice(1);state.view=canView(requested)?requested:Object.keys(labels).find(v=>canView(v))||'dashboard';if(!canView(state.view)){$('page').replaceChildren(el('p','Seu perfil ainda não possui módulos liberados. Procure um administrador.','notice'));return;}await loadPage();connectSocket();}
   catch(e){showLogin(e.status===401?'':e.message);}
 }
 $('login-form').addEventListener('submit',async event=>{event.preventDefault();const form=event.currentTarget;const submit=form.querySelector('button');submit.disabled=true;$('login-error').hidden=true;try{await refreshCsrf();const data=await api('/api/login',{method:'POST',body:Object.fromEntries(new FormData(form))});setCsrf(data.csrf_token);$('login-form').reset();await boot();}catch(e){$('login-error').textContent=e.message;$('login-error').hidden=false;}finally{submit.disabled=false;}});

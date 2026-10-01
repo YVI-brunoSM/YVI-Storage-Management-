@@ -40,7 +40,7 @@ def stock_state(stock, minimum):
 
 
 def recipient_rows(conn):
-    return conn.execute("SELECT id,name,role,email FROM users WHERE active=1 AND role IN ('ADMIN','MANAGER') ORDER BY id").fetchall()
+    return conn.execute("SELECT id,name,role,email,branch_restricted,ARRAY(SELECT b.name FROM user_branches ub JOIN branches b ON b.id=ub.branch_id WHERE ub.user_id=users.id ORDER BY b.name) AS branch_names FROM users WHERE active=1 AND role IN ('ADMIN','MANAGER') ORDER BY id").fetchall()
 
 
 def queue_event(conn, key, kind, payload, product_id=None, test=False):

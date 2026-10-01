@@ -19,7 +19,7 @@ def identity(conn):
     uid = session.get('user_id')
     if not isinstance(uid, int):
         raise ApiError('LOGIN_REQUIRED', 'Entre novamente para continuar.', 401)
-    user = conn.execute('SELECT id, username, name, email, role, active, session_version, version, avatar_revision, (avatar IS NOT NULL) AS has_avatar FROM users WHERE id=%s', (uid,)).fetchone()
+    user = conn.execute('SELECT id, username, name, email, role, active, session_version, version, avatar_revision, (avatar IS NOT NULL) AS has_avatar, branch_restricted, ARRAY(SELECT branch_id FROM user_branches WHERE user_id=users.id ORDER BY branch_id) AS branch_ids FROM users WHERE id=%s', (uid,)).fetchone()
     if not user or not user['active'] or user['session_version'] != session.get('session_version'):
         session.clear()
         raise ApiError('LOGIN_REQUIRED', 'Sua sessão foi encerrada. Entre novamente.', 401)

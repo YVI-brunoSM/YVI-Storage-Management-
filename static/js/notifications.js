@@ -53,7 +53,7 @@ export async function notificationsPage({signal,cursor,onPage,onRefresh}) {
   connection.append(node('p','Última comunicação: '+date(data.worker_seen_at)+' · Limite local: '+data.daily_limit+' tentativas em 24 horas.','muted'));
   root.append(connection);
   const delivery=node('section',undefined,'notification-card');delivery.append(node('h2','Alertas de estoque'),node('p',data.enabled?'Ativados: novas ocorrências de Repor e Esgotado entram na fila.':'Pausados: novas ocorrências não geram e-mails.','notice'));
-  delivery.append(node('p','A seleção de unidade nas outras páginas não altera os destinatários. Os alertas referem-se ao estoque central.','muted'));
+  delivery.append(node('p','A seleção de unidade nas outras páginas não altera os destinatários. Os e-mails respeitam as unidades autorizadas de cada usuário. Os saldos referem-se ao estoque central.','muted'));
   const deliveryButtons=node('div',undefined,'actions');
   deliveryButtons.append(unavailable(action(data.enabled?'Pausar alertas':'Ativar alertas',async()=>{
     if(!data.enabled&&!confirm('Você recebeu o teste? Ativar enviará os novos alertas aos administradores e gerentes listados abaixo.'))return;
@@ -65,7 +65,7 @@ export async function notificationsPage({signal,cursor,onPage,onRefresh}) {
   delivery.append(deliveryButtons,node('p',data.test_accepted_at?'Último teste aceito pelo Gmail: '+date(data.test_accepted_at):'Para ativar, conecte o Gmail e aguarde um teste aceito no histórico.','muted'));
   delivery.append(node('h3','Quem recebe'));
   const recipients=node('ul',undefined,'notification-recipients');
-  for(const user of data.recipients){const row=node('li');row.append(node('strong',user.name),node('span',' · '+(user.role==='ADMIN'?'Administrador':'Gerente')),node('span',user.valid?' — '+user.email:' — cadastre um e-mail válido em Usuários e acessos',user.valid?'muted':'movement-out-text'));recipients.append(row);}
+  for(const user of data.recipients){const row=node('li');row.append(node('strong',user.name),node('span',' · '+(user.role==='ADMIN'?'Administrador':'Gerente')),node('span',user.valid?' — '+user.email:' — cadastre um e-mail válido em Usuários e acessos',user.valid?'muted':'movement-out-text'),node('span',user.branch_restricted?' · Unidades: '+(user.branch_names||[]).join(', '):' · Todas as academias','muted'));recipients.append(row);}
   if(!data.recipients.length)recipients.append(node('li','Nenhum administrador ou gerente ativo.'));
   delivery.append(recipients);root.append(delivery);
   const history=node('section',undefined,'notification-card');history.append(node('h2','Histórico de envios'),node('p','Aceito pelo Gmail não confirma entrega nem leitura. Para resultado incerto, procure a referência YVI na pasta Enviados antes de reenviar.','muted'));

@@ -17,6 +17,7 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from .db import transaction
 from .validation import ApiError, body, text, integer, number, choice, boolean, password, quantity_for_unit, page, invalid
 from .security import require, csrf_token, identity, permitted, expect_version, PERMISSIONS, ROLES
+from .branch_access import allowed_ids, check_branch, check_product, shared_catalog, scope_ids, save_access
 
 api = Blueprint('api', __name__, url_prefix='/api')
 UNITS = ('un','m','par','cx','kg')
@@ -107,16 +108,23 @@ def selected_branch():
     g.selected_branch = None
     if raw:
         bid = integer(raw, 'branch_id')
+        check_branch(bid)
         g.selected_branch = g.conn.execute('SELECT id,name FROM branches WHERE id=%s', (bid,)).fetchone()
         if not g.selected_branch:
             raise ApiError('BRANCH_NOT_FOUND', 'Unidade não encontrada. Atualize o filtro.', 404)
+    elif allowed_ids() is not None:
+        ids = allowed_ids()
+        if len(ids) == 1:
+            g.selected_branch = g.conn.execute('SELECT id,name FROM branches WHERE id=%s', (ids[0],)).fetchone()
+        else:
+            g.selected_branch = {'id': None, 'name': 'Unidades autorizadas', 'ids': ids}
     return g.selected_branch
 
 
 def product_branch_condition(branch):
     if not branch:
         return '', []
-    return ' AND EXISTS(SELECT 1 FROM movements scope WHERE scope.product_id=p.id AND scope.branch_id=%s)', [branch['id']]
+    return ' AND EXISTS(SELECT 1 FROM movements scope WHERE scope.product_id=p.id AND scope.branch_id=ANY(%s))', [scope_ids(branch)]
 
 
 @api.get('/dashboard/stats')
@@ -124,12 +132,12 @@ def product_branch_condition(branch):
 def dashboard():
     branch = selected_branch()
     product_scope, product_params = product_branch_condition(branch)
-    movement_scope, movement_params = (' AND m.branch_id=%s', [branch['id']]) if branch else ('', [])
+    movement_scope, movement_params = (' AND m.branch_id=ANY(%s)', [scope_ids(branch)]) if branch else ('', [])
     stats = g.conn.execute("SELECT count(*) AS total_skus,count(*) FILTER(WHERE p.current_stock<=p.min_stock) AS low_stock_count,count(*) FILTER(WHERE p.current_stock=0) AS out_count,sum(p.current_stock*p.purchase_price) AS purchase_valuation,sum(p.current_stock*p.sale_price) AS sale_valuation FROM products p WHERE p.active=1"+product_scope, product_params).fetchone()
     if not g.user['permissions']['costs_view']:
         stats.pop('purchase_valuation'); stats.pop('sale_valuation')
     stats['stock_by_unit'] = g.conn.execute('SELECT p.unit,sum(p.current_stock) AS quantity FROM products p WHERE p.active=1'+product_scope+' GROUP BY p.unit ORDER BY p.unit', product_params).fetchall()
-    stats['branches'] = 1 if branch else g.conn.execute('SELECT count(*) AS n FROM branches').fetchone()['n']
+    stats['branches'] = len(scope_ids(branch)) if branch else g.conn.execute('SELECT count(*) AS n FROM branches').fetchone()['n']
     stats['selected_branch'] = branch
     today = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(hour=0, minute=0, second=0, microsecond=0)
     start, end = today - timedelta(days=6), today + timedelta(days=1)
@@ -150,8 +158,8 @@ def product_query(alerts=False):
     conditions, params = ['p.active=1'], []
     branch = selected_branch()
     if branch:
-        conditions.append('EXISTS(SELECT 1 FROM movements scope WHERE scope.product_id=p.id AND scope.branch_id=%s)')
-        params.append(branch['id'])
+        conditions.append('EXISTS(SELECT 1 FROM movements scope WHERE scope.product_id=p.id AND scope.branch_id=ANY(%s))')
+        params.append(scope_ids(branch))
     search = text(request.args, 'search', maximum=100)
     if search:
         conditions.append('(p.name ILIKE %s OR p.code ILIKE %s OR p.location ILIKE %s)')
@@ -201,6 +209,7 @@ def products_lookup():
 @api.get('/products/<int:pid>')
 @require('products_view')
 def product_detail(pid):
+    check_product(pid)
     row = g.conn.execute('SELECT p.*,c.name AS category_name FROM products p JOIN categories c ON c.id=p.category_id WHERE p.id=%s', (pid,)).fetchone()
     if not row:
         raise ApiError('NOT_FOUND','Peça não encontrada.',404)
@@ -249,11 +258,15 @@ def operation(data, scope, callback):
 def operation_status(key):
     if len(key) > 40:
         invalid('key')
+    if allowed_ids() is not None:
+        # Replaying the original POST revalidates current unit access and retains idempotency.
+        return jsonify({'found': False, 'result': None})
     row = g.conn.execute('SELECT result FROM operation_keys WHERE user_id=%s AND key=%s', (g.user['id'],key)).fetchone()
     return jsonify({'found':bool(row and row['result']), 'result':row['result'] if row else None})
 
 
 def write_movement(product, mov_type, qty, branch_id, destination, notes, reversal_of=None, notify=True):
+    check_branch(branch_id)
     quantity_for_unit(qty,product['unit'])
     delta = qty if mov_type=='ENTRADA' else -qty
     new_stock = product['current_stock'] + delta
@@ -273,7 +286,7 @@ def write_movement(product, mov_type, qty, branch_id, destination, notes, revers
         from .notifications import stock_event
         stock_event(g.conn, product, {**product, 'current_stock': new_stock},
             {'operation': ('Estorno · ' if reversal_of else '') + ('Entrada' if mov_type == 'ENTRADA' else 'Saída'),
-             'actor': g.user['name'], 'quantity': str(qty), 'branch': branch['name'] if branch else None, 'notes': notes},
+             'actor': g.user['name'], 'quantity': str(qty), 'branch': branch['name'] if branch else None, 'branch_id': branch_id, 'notes': notes},
             'movement:' + str(row['id']))
     return {'id':row['id'],'new_stock':new_stock,'message':'Movimentação registrada.'}
 
@@ -281,6 +294,7 @@ def write_movement(product, mov_type, qty, branch_id, destination, notes, revers
 @api.post('/products')
 @require('products_manage')
 def create_product():
+    shared_catalog()
     data = body()
     fields = product_fields(data)
     initial = number(data,'current_stock',default=0)
@@ -302,6 +316,7 @@ def create_product():
 @api.put('/products/<int:pid>')
 @require('products_manage')
 def update_product(pid):
+    shared_catalog()
     data=body()
     old=g.conn.execute('SELECT * FROM products WHERE id=%s AND active=1 FOR UPDATE',(pid,)).fetchone()
     expect_version(old,data)
@@ -316,6 +331,7 @@ def update_product(pid):
 @api.delete('/products/<int:pid>')
 @require('products_manage')
 def archive_product(pid):
+    shared_catalog()
     old=g.conn.execute('SELECT * FROM products WHERE id=%s AND active=1 FOR UPDATE',(pid,)).fetchone()
     expect_version(old,body())
     if old['current_stock']:
@@ -334,6 +350,8 @@ def create_movement():
     pid=integer(data.get('product_id'),'product_id')
     qty=number(data,'quantity',minimum=Decimal('.001'))
     branch=integer(data.get('branch_id'),'branch_id')
+    check_branch(branch)
+    check_product(pid)
     destination=text(data,'destination_equipment',maximum=200)
     notes=text(data,'notes',maximum=1000)
     def create():
@@ -378,7 +396,7 @@ def movement_query():
     conditions,params=['true'],[]
     branch = selected_branch()
     if branch:
-        conditions.append('m.branch_id=%s'); params.append(branch['id'])
+        conditions.append('m.branch_id=ANY(%s)'); params.append(scope_ids(branch))
     for field in ('product_id',):
         if request.args.get(field):
             conditions.append('m.'+field+'=%s');params.append(integer(request.args[field],field))
@@ -392,8 +410,10 @@ def movement_query():
                 invalid(field,'Data inválida.')
             conditions.append('m.timestamp'+op+'%s');params.append(value)
     if request.args.get('before_id'):
-        conditions.append('(m.timestamp,m.id)<(SELECT timestamp,id FROM movements WHERE id=%s)')
+        conditions.append('(m.timestamp,m.id)<(SELECT timestamp,id FROM movements WHERE id=%s'+(' AND branch_id=ANY(%s)' if branch else '')+')')
         params.append(integer(request.args['before_id'],'before_id'))
+        if branch:
+            params.append(scope_ids(branch))
     return ' AND '.join(conditions),params
 
 
@@ -421,10 +441,11 @@ def categories():
 @require()
 def branches():
     branch = selected_branch()
-    return jsonify(g.conn.execute('SELECT * FROM branches'+(' WHERE id=%s' if branch else '')+' ORDER BY name', (branch['id'],) if branch else ()).fetchall())
+    return jsonify(g.conn.execute('SELECT * FROM branches'+(' WHERE id=ANY(%s)' if branch else '')+' ORDER BY name', (scope_ids(branch),) if branch else ()).fetchall())
 
 
 def catalog_write(table, fields, resource_id=None):
+    shared_catalog()
     data=body()
     values={field:text(data,field,field=='name',500 if field=='description' else 200) for field in fields}
     if table=='categories':
@@ -466,6 +487,7 @@ def update_branch(bid):
 
 
 def catalog_delete(table,rid):
+    shared_catalog()
     old=g.conn.execute(sql.SQL('SELECT * FROM {} WHERE id=%s FOR UPDATE').format(sql.Identifier(table)),(rid,)).fetchone()
     expect_version(old,body())
     g.conn.execute(sql.SQL('DELETE FROM {} WHERE id=%s').format(sql.Identifier(table)),(rid,))
@@ -489,8 +511,8 @@ def delete_branch(bid):
 @require('users_manage',admin=True)
 def users():
     branch = selected_branch()
-    where = ' WHERE EXISTS(SELECT 1 FROM movements m WHERE m.user_id=u.id AND m.branch_id=%s)' if branch else ''
-    return jsonify(g.conn.execute('SELECT id,username,name,email,role,active,version,created_at,avatar_revision,(avatar IS NOT NULL) AS has_avatar FROM users u'+where+' ORDER BY name', (branch['id'],) if branch else ()).fetchall())
+    where = ' WHERE EXISTS(SELECT 1 FROM movements m WHERE m.user_id=u.id AND m.branch_id=%s) OR EXISTS(SELECT 1 FROM user_branches ub WHERE ub.user_id=u.id AND ub.branch_id=%s)' if branch else ''
+    return jsonify(g.conn.execute('SELECT id,username,name,email,role,active,version,created_at,avatar_revision,(avatar IS NOT NULL) AS has_avatar,branch_restricted,ARRAY(SELECT branch_id FROM user_branches WHERE user_id=u.id ORDER BY branch_id) AS branch_ids FROM users u'+where+' ORDER BY name', (branch['id'],branch['id']) if branch else ()).fetchall())
 
 
 def user_fields(data, create=False):
@@ -507,8 +529,9 @@ def user_fields(data, create=False):
 @api.post('/users')
 @require('users_manage',admin=True)
 def create_user():
-    values=user_fields(body(),True)
+    data=body();values=user_fields(data,True)
     uid=g.conn.execute('INSERT INTO users(username,name,email,role,password_hash) VALUES(%s,%s,%s,%s,%s) RETURNING id',(*values[:4],generate_password_hash(values[4]))).fetchone()['id']
+    save_access(g.conn, uid, data, values[3], create=True)
     audit('user_created',uid)
     return jsonify({'id':uid,'message':'Usuário criado.'}),201
 
@@ -532,7 +555,12 @@ def update_user(uid):
     old=g.conn.execute('SELECT * FROM users WHERE id=%s FOR UPDATE',(uid,)).fetchone()
     expect_version(old,data)
     protect_last_admin(uid,values[3],old['active'])
+    # Clear restrictions before promotion to satisfy the admin invariant.
+    if values[3] == 'ADMIN':
+        save_access(g.conn, uid, data, values[3])
     g.conn.execute('UPDATE users SET username=%s,name=%s,email=%s,role=%s,password_hash=%s,version=version+1,session_version=session_version+1 WHERE id=%s',(*values[:4],generate_password_hash(values[4]) if values[4] else old['password_hash'],uid))
+    if values[3] != 'ADMIN':
+        save_access(g.conn, uid, data, values[3])
     g.revoke_users=[uid]
     audit('user_updated',uid,{'role_before':old['role'],'role_after':values[3]})
     return jsonify({'message':'Usuário atualizado. Sessões anteriores encerradas.'})
@@ -558,6 +586,13 @@ def set_user_active(uid):
 @require('users_manage',admin=True)
 def permissions():
     return jsonify(g.conn.execute('SELECT * FROM role_permissions ORDER BY role').fetchall())
+
+
+@api.get('/admin/settings')
+@require(admin=True)
+def admin_settings():
+    return jsonify({'active_users': g.conn.execute('SELECT count(*) AS n FROM users WHERE active=1').fetchone()['n'],
+                    'branches': g.conn.execute('SELECT count(*) AS n FROM branches').fetchone()['n']})
 
 
 @api.put('/permissions')

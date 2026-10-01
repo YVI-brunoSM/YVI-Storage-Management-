@@ -58,8 +58,22 @@ def render_message(row, sender):
 def recipient_allowed(conn, row):
     if row['kind'] == 'test':
         return row['recipient'] == current_app.config['EMAIL_REPLY_TO'].lower()
-    user = conn.execute('SELECT active,role,email FROM users WHERE id=%s', (row['user_id'],)).fetchone()
-    return bool(user and user['active'] and user['role'] in ('ADMIN', 'MANAGER') and (user['email'] or '').strip().lower() == row['recipient'])
+    user = conn.execute('SELECT active,role,email,branch_restricted FROM users WHERE id=%s', (row['user_id'],)).fetchone()
+    if not (user and user['active'] and user['role'] in ('ADMIN', 'MANAGER') and (user['email'] or '').strip().lower() == row['recipient']):
+        return False
+    if not user['branch_restricted']:
+        return True
+    ids = [r['branch_id'] for r in conn.execute('SELECT branch_id FROM user_branches WHERE user_id=%s', (row['user_id'],))]
+    if not ids:
+        return False
+    if row['kind'] == 'summary':
+        codes = {r['code'] for r in conn.execute('SELECT p.code FROM products p WHERE EXISTS(SELECT 1 FROM movements m WHERE m.product_id=p.id AND m.branch_id=ANY(%s))', (ids,))}
+        row['payload'] = {**row['payload'], 'items': [p for p in row['payload']['items'] if p['code'] in codes], 'truncated': False}
+        return True
+    payload = row['payload']
+    if payload.get('branch') and payload.get('branch_id') not in ids:
+        return False
+    return bool(conn.execute('SELECT 1 FROM movements WHERE product_id=%s AND branch_id=ANY(%s) LIMIT 1', (row.get('product_id'), ids)).fetchone())
 
 
 def claim():
@@ -76,7 +90,7 @@ def claim():
         used = conn.execute("SELECT count(*) AS n FROM email_attempts WHERE started_at>now()-interval '24 hours'").fetchone()['n']
         if used >= current_app.config['EMAIL_DAILY_LIMIT']:
             return None
-        row = conn.execute("SELECT m.*,e.kind,e.payload FROM email_messages m JOIN email_events e ON e.id=m.event_id WHERE m.status='pending' AND m.next_attempt_at<=now() AND (e.kind='test' OR %s) ORDER BY m.id LIMIT 1 FOR UPDATE OF m SKIP LOCKED", (settings['enabled'],)).fetchone()
+        row = conn.execute("SELECT m.*,e.kind,e.payload,e.product_id FROM email_messages m JOIN email_events e ON e.id=m.event_id WHERE m.status='pending' AND m.next_attempt_at<=now() AND (e.kind='test' OR %s) ORDER BY m.id LIMIT 1 FOR UPDATE OF m SKIP LOCKED", (settings['enabled'],)).fetchone()
         if not row:
             return None
         if not recipient_allowed(conn, row):
@@ -95,7 +109,6 @@ def process_once():
         return False
     row, settings = claimed
     try:
-        message = render_message(row, settings['sender'])
         token = transport.access_token(transport.decrypt(settings['refresh_token_cipher']))
         # Recheck after token renewal. Nothing holds a stock transaction during HTTPS.
         with transaction() as conn:
@@ -109,6 +122,7 @@ def process_once():
             if not recipient_allowed(conn, row):
                 conn.execute("UPDATE email_messages SET status='cancelled',last_error='recipient_changed' WHERE id=%s", (row['id'],))
                 return True
+        message = render_message(row, settings['sender'])
         provider_id = transport.send_message(token, message)
         with transaction() as conn:
             conn.execute("UPDATE email_messages SET status='accepted',accepted_at=now(),provider_id=%s,last_error=NULL WHERE id=%s AND status='processing'", (provider_id, row['id']))

@@ -11,6 +11,48 @@ from inventory.notifications import queue_event
 REAL_GOOGLE_REQUEST = transport.google_request
 
 
+def test_restricted_manager_does_not_receive_other_unit_stock(mail, client, db, monkeypatch):
+    captured=mock_sender(monkeypatch)
+    db.execute("INSERT INTO branches(name) VALUES('Outra unidade')")
+    db.execute('UPDATE users SET branch_restricted=true WHERE id=3')
+    db.execute('INSERT INTO user_branches(user_id,branch_id) VALUES(3,1)')
+    response=client.post('/api/movements',json={'product_id':1,'branch_id':2,'type':'SAIDA','quantity':8},headers=headers())
+    assert response.status_code==201
+    run_once(mail);run_once(mail)
+    assert len(captured)==1 and captured[0]['To']=='admin@example.test'
+    assert db.execute("SELECT status FROM email_messages WHERE recipient='manager@example.test'").fetchone()['status']=='cancelled'
+
+
+def test_summary_is_filtered_for_each_recipient(mail, client, db, monkeypatch):
+    captured=mock_sender(monkeypatch)
+    db.execute("INSERT INTO branches(name) VALUES('Outra unidade')")
+    db.execute("UPDATE products SET current_stock=0 WHERE id=1")
+    db.execute("INSERT INTO products(code,name,category_id,unit,current_stock,min_stock) VALUES('OUTSIDE','Peça de outra unidade',1,'un',0,2)")
+    for pid,bid in ((1,1),(2,2)):
+        db.execute("INSERT INTO movements(product_id,branch_id,user_id,type,quantity,unit_price,total_price,legacy) VALUES(%s,%s,1,'SAIDA',1,0,0,true)",(pid,bid))
+    db.execute('UPDATE users SET branch_restricted=true WHERE id=3')
+    db.execute('INSERT INTO user_branches(user_id,branch_id) VALUES(3,1)')
+    assert client.post('/api/notifications/summary',json={},headers=headers()).status_code==202
+    run_once(mail);run_once(mail)
+    messages={m['To']:m.get_body(preferencelist=('plain',)).get_content() for m in captured}
+    assert 'OUTSIDE' in messages['admin@example.test']
+    assert 'P01' in messages['manager@example.test'] and 'OUTSIDE' not in messages['manager@example.test']
+
+
+def test_unit_permission_is_rechecked_after_token_renewal(mail, client, db, monkeypatch):
+    captured=mock_sender(monkeypatch)
+    db.execute("INSERT INTO branches(name) VALUES('Outra unidade')")
+    assert client.post('/api/movements',json={'product_id':1,'branch_id':2,'type':'SAIDA','quantity':8},headers=headers()).status_code==201
+    run_once(mail)
+    def narrow_access(refresh):
+        db.execute('UPDATE users SET branch_restricted=true WHERE id=3')
+        db.execute('INSERT INTO user_branches(user_id,branch_id) VALUES(3,1)')
+        return 'test-access'
+    monkeypatch.setattr(transport,'access_token',narrow_access)
+    run_once(mail)
+    assert len(captured)==1
+
+
 @pytest.fixture(autouse=True)
 def no_google_network(monkeypatch):
     def blocked(*args, **kwargs):

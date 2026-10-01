@@ -177,7 +177,7 @@ def create_app(config=None):
     def ready():
         with transaction() as conn:
             row = conn.execute('SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1').fetchone()
-            if not row or row['version'] != '005_email_notifications':
+            if not row or row['version'] != '006_user_branch_access':
                 raise ApiError('SCHEMA_NOT_READY', 'Sistema em atualização.', 503)
         return jsonify({'status': 'ready'})
     return app

@@ -89,3 +89,7 @@ Para reproduzir a carga local, com a mesma variável `YVI_TEST_ADMIN_URL` e a po
 `inventory/`: aplicação, permissões, transações, APIs e eventos. `migrations/`: esquema versionado. `static/` e `templates/`: interface e recursos locais. `tests/`: verificações com banco real. `manage.py`: operações administrativas explícitas. `migrate.py`: migração e diagnóstico prévio.
 
 Licenças das fontes e do cliente Socket.IO estão em `static/fonts/` e `static/vendor/`. `static/asset-sources.json` registra origem e hashes desses recursos. Nenhum serviço de fontes externo é chamado pela interface.
+
+## Administração e unidades autorizadas
+
+A aba Configurações reúne os recursos administrativos. Usuários podem ter acesso geral ou a uma lista de unidades. Publique com `python migrate.py` para aplicar `006_user_branch_access` antes de iniciar esta versão. As contas existentes preservam o acesso geral até serem revisadas. Veja [o guia de configuração de unidades](ACESSO-UNIDADES.md).
