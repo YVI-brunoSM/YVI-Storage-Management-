@@ -66,7 +66,7 @@ def test_legacy_migration_preserves_balances_and_orphan_id(test_url):
             assert conn.execute('SELECT quantity FROM product_baselines').fetchone()[0]==12
             m=conn.execute('SELECT legacy,legacy_product_id,product_id,product_name,extract(hour from timestamp AT TIME ZONE \'UTC\') FROM movements').fetchone()
             assert m==(True,99,None,'Arquivada',15)
-            assert conn.execute('SELECT count(*) FROM schema_migrations').fetchone()[0]==4
+            assert conn.execute('SELECT count(*) FROM schema_migrations').fetchone()[0]==5
     finally:
         with psycopg.connect(test_url,autocommit=True) as conn:
             conn.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(name)))

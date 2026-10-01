@@ -33,6 +33,9 @@ def app(test_url):
     with psycopg.connect(test_url) as conn:
         assert conn.info.dbname.startswith('yvi_test_')
         conn.execute('TRUNCATE audit_events,operation_keys,product_baselines,movements,products,users,categories,branches,login_limits RESTART IDENTITY CASCADE')
+        conn.execute('TRUNCATE email_attempts,email_messages,email_events,email_oauth_states RESTART IDENTITY CASCADE')
+        conn.execute('DELETE FROM email_settings')
+        conn.execute('INSERT INTO email_settings(id) VALUES(1)')
         conn.execute("UPDATE role_permissions SET costs_view=CASE WHEN role='OPERATOR' THEN 0 ELSE 1 END,users_manage=CASE WHEN role='ADMIN' THEN 1 ELSE 0 END,version=1")
         conn.execute("INSERT INTO users(username,name,password_hash,role) VALUES('admin','Administrador',%s,'ADMIN'),('operator','Operador',%s,'OPERATOR')",(generate_password_hash('Test-password-123'),generate_password_hash('Test-password-123')))
         conn.execute("INSERT INTO categories(name) VALUES('Equipamentos')")

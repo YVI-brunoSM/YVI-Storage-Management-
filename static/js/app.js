@@ -1,10 +1,11 @@
 import {categoryLabel, iconPicker, pieceCombobox, avatarNode} from './widgets.js';
 import {api, ApiError, refreshCsrf, setCsrf, getCsrf} from './http.js';
+import {notificationsPage} from './notifications.js';
 
 const $ = id => document.getElementById(id);
 const state = {user:null, view:'dashboard', branch:'', branchOptions:[], page:1, search:'', category:'', status:'', cursor:null, cursors:[], socket:null, controller:null, sequence:0, metadata:{categories:[],branches:[]}};
-const labels = {dashboard:'Visão geral',products:'Peças e Estoque',movements:'Movimentações',alerts:'Reposição',categories:'Categorias',branches:'Unidades da rede',users:'Usuários e acessos',reports:'Relatórios'};
-const permission = {dashboard:'dashboard',products:'products_view',movements:'products_view',alerts:'alerts_view',categories:'categories_manage',branches:'branches_manage',users:'users_manage',reports:'reports_export'};
+const labels = {dashboard:'Visão geral',products:'Peças e Estoque',movements:'Movimentações',alerts:'Reposição',categories:'Categorias',branches:'Unidades da rede',users:'Usuários e acessos',reports:'Relatórios',notifications:'Notificações'};
+const permission = {dashboard:'dashboard',products:'products_view',movements:'products_view',alerts:'alerts_view',categories:'categories_manage',branches:'branches_manage',users:'users_manage',reports:'reports_export',notifications:'users_manage'};
 const permissions = {dashboard:'Visão geral',products_view:'Consultar peças e histórico',products_manage:'Gerenciar peças',costs_view:'Consultar e alterar custos',categories_manage:'Gerenciar categorias',movements_in:'Registrar entradas',movements_out:'Registrar saídas',alerts_view:'Consultar reposição',branches_manage:'Gerenciar unidades',users_manage:'Gerenciar usuários e permissões',reports_export:'Exportar relatórios'};
 let metadataPromise, toastTimer, reloadTimer, editorCleanup = () => {};
 const can = p => !!state.user?.permissions[p];
@@ -27,7 +28,7 @@ function online(ok) { $('connection').textContent=ok?'Dados sincronizados · '+n
 function pageError(error) { if(error.name==='AbortError')return; if(error.status===401){showLogin(error.message);return;}online(false);const box=$('page-status');box.replaceChildren(el('span',error.message+(error.requestId?' Protocolo: '+error.requestId:'')),button('Tentar novamente',()=>loadPage(),'button small'));box.className='notice error';box.hidden=false; }
 function showLogin(message='') { state.controller?.abort();state.sequence++;state.user=null;state.branch='';state.branchOptions=[];state.socket?.disconnect();state.socket=null;state.metadata={categories:[],branches:[]};metadataPromise=null;$('workspace').hidden=true;$('login-panel').hidden=false;$('logout').hidden=true;$('user-name').textContent='';$('profile').hidden=true;$('page').replaceChildren();if($('editor').open){editorCleanup();$('editor').close();}$('editor-content').replaceChildren();if(message){$('login-error').textContent=message;$('login-error').hidden=false;} }
 async function metadata() { if(!metadataPromise)metadataPromise=Promise.all([api('/api/categories'),api('/api/branches')]).then(([categories,branches])=>(state.metadata={categories,branches})).catch(e=>{metadataPromise=null;throw e;});return metadataPromise; }
-function applyUser(user) { state.user=user;$('user-name').textContent=user.name;$('profile').hidden=false;$('profile').replaceChildren(avatarNode(user),el('span','Meu perfil')); $('logout').hidden=false;$('login-panel').hidden=true;$('workspace').hidden=false;document.querySelectorAll('[data-permission]').forEach(b=>b.hidden=!can(b.dataset.permission)||(b.dataset.view==='users'&&user.role!=='ADMIN')); }
+function applyUser(user) { state.user=user;$('user-name').textContent=user.name;$('profile').hidden=false;$('profile').replaceChildren(avatarNode(user),el('span','Meu perfil')); $('logout').hidden=false;$('login-panel').hidden=true;$('workspace').hidden=false;document.querySelectorAll('[data-permission]').forEach(b=>b.hidden=!can(b.dataset.permission)||(['users','notifications'].includes(b.dataset.view)&&user.role!=='ADMIN')); }
 function navigate(view) { if(!can(permission[view]))return;Object.assign(state,{view,page:1,search:'',category:'',status:'',cursor:null,cursors:[]});history.replaceState(null,'','#'+view);loadPage(); }
 
 async function loadPage(silent=false) {
@@ -38,7 +39,7 @@ async function loadPage(silent=false) {
   try {
     await refreshBranchFilter(controller.signal);
     if(sequence!==state.sequence)return;
-    const node=await ({dashboard:dashboardPage,products:()=>productsPage(false),alerts:()=>productsPage(true),movements:movementPage,categories:()=>catalogPage('categories'),branches:()=>catalogPage('branches'),users:usersPage,reports:reportsPage}[state.view])();
+    const node=await ({dashboard:dashboardPage,products:()=>productsPage(false),alerts:()=>productsPage(true),movements:movementPage,categories:()=>catalogPage('categories'),branches:()=>catalogPage('branches'),users:usersPage,reports:reportsPage,notifications:()=>notificationsPage({signal:controller.signal,cursor:state.cursor,onRefresh:()=>loadPage(),onPage:cursor=>{state.cursor=cursor;return loadPage();}})}[state.view])();
     if(sequence!==state.sequence)return;
     const focused=document.activeElement;const focusName=focused?.dataset.filter;const start=focused?.selectionStart;
     $('page').replaceChildren(node);$('page-status').hidden=true;online(true);
@@ -49,6 +50,8 @@ async function loadPage(silent=false) {
 function branchPath(path) { const url=new URL(path,location.origin);if(state.branch)url.searchParams.set('branch_id',state.branch);return url.pathname+url.search; }
 function fetchPage(path) { return api(branchPath(path),{signal:state.controller.signal}); }
 async function refreshBranchFilter(signal) {
+  $('branch-filter').closest('.unit-toolbar').hidden=state.view==='notifications';
+  if(state.view==='notifications')return;
   const rows=await api('/api/branches',{signal});
   if(signal.aborted)return;
   state.branchOptions=rows;

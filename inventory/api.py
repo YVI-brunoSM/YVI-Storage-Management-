@@ -253,7 +253,7 @@ def operation_status(key):
     return jsonify({'found':bool(row and row['result']), 'result':row['result'] if row else None})
 
 
-def write_movement(product, mov_type, qty, branch_id, destination, notes, reversal_of=None):
+def write_movement(product, mov_type, qty, branch_id, destination, notes, reversal_of=None, notify=True):
     quantity_for_unit(qty,product['unit'])
     delta = qty if mov_type=='ENTRADA' else -qty
     new_stock = product['current_stock'] + delta
@@ -269,6 +269,12 @@ def write_movement(product, mov_type, qty, branch_id, destination, notes, revers
     row = g.conn.execute('INSERT INTO movements(product_id,type,quantity,unit_price,total_price,branch_id,destination_equipment,notes,user_id,product_code,product_name,product_unit,actor_name,branch_name_snapshot,stock_after,reversal_of) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
         (product['id'],mov_type,qty,price,total,branch_id,destination,notes,g.user['id'],product['code'],product['name'],product['unit'],g.user['name'],branch['name'] if branch else None,new_stock,reversal_of)).fetchone()
     g.conn.execute('UPDATE products SET current_stock=%s,version=version+1 WHERE id=%s', (new_stock,product['id']))
+    if notify:
+        from .notifications import stock_event
+        stock_event(g.conn, product, {**product, 'current_stock': new_stock},
+            {'operation': ('Estorno · ' if reversal_of else '') + ('Entrada' if mov_type == 'ENTRADA' else 'Saída'),
+             'actor': g.user['name'], 'quantity': str(qty), 'branch': branch['name'] if branch else None, 'notes': notes},
+            'movement:' + str(row['id']))
     return {'id':row['id'],'new_stock':new_stock,'message':'Movimentação registrada.'}
 
 
@@ -285,7 +291,9 @@ def create_product():
         p = g.conn.execute('INSERT INTO products(code,name,category_id,unit,min_stock,purchase_price,sale_price,location) VALUES(%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *', tuple(fields[k] for k in ('code','name','category_id','unit','min_stock','purchase_price','sale_price','location'))).fetchone()
         g.conn.execute('INSERT INTO product_baselines(product_id,quantity) VALUES(%s,0)', (p['id'],))
         if initial:
-            write_movement(p,'ENTRADA',initial,None,'Abertura','Saldo inicial registrado no cadastro.')
+            write_movement(p,'ENTRADA',initial,None,'Abertura','Saldo inicial registrado no cadastro.',notify=False)
+        from .notifications import stock_event
+        stock_event(g.conn, p, {**p, 'current_stock': initial}, {'operation': 'Cadastro de peça', 'actor': g.user['name']}, 'product-created:' + str(p['id']), initial=True)
         audit('product_created',p['id'])
         return {'id':p['id'],'message':'Peça cadastrada.'}
     return operation(data,'product:create',create)
@@ -299,6 +307,8 @@ def update_product(pid):
     expect_version(old,data)
     values=product_fields(data,old)
     g.conn.execute('UPDATE products SET name=%s,category_id=%s,min_stock=%s,location=%s,purchase_price=%s,sale_price=%s,version=version+1 WHERE id=%s',(*(values[k] for k in ('name','category_id','min_stock','location','purchase_price','sale_price')),pid))
+    from .notifications import stock_event
+    stock_event(g.conn, old, {**old, **values}, {'operation': 'Alteração do estoque mínimo', 'actor': g.user['name']}, f'product-updated:{pid}:{old["version"]+1}')
     audit('product_updated',pid,{'version_before':old['version']})
     return jsonify({'message':'Peça atualizada.'})
 
@@ -488,7 +498,8 @@ def user_fields(data, create=False):
     if not all(c.isalnum() or c in '._-' for c in username):
         invalid('username','Use letras, números, ponto, hífen ou sublinhado.')
     email=text(data,'email',maximum=200)
-    if email and ('@' not in email or email.startswith('@') or email.endswith('@')):
+    from .mail_transport import valid_email
+    if email and not valid_email(email):
         invalid('email','Informe um e-mail válido.')
     return username,text(data,'name',True),email,choice(data,'role',ROLES),password(data,required=create)
 

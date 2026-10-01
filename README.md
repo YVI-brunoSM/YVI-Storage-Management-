@@ -4,6 +4,7 @@ Sistema interno Flask + JavaScript, com PostgreSQL obrigatório. Interface em po
 
 ## O que mudou
 
+- Notificações de estoque por Gmail, com fila no Postgres, conexão OAuth protegida e histórico administrativo. Alertas começam desativados. Siga [CONFIGURAR-GMAIL.md](CONFIGURAR-GMAIL.md) para concluir Google e Railway.
 - Estoque e lançamento gravados na mesma transação. Bloqueio de linha por peça impede duas saídas de consumirem o mesmo saldo.
 - Movimentações têm identificação única por usuário: repetir um envio não repete o lançamento. O formulário mantém o preenchimento quando ocorre uma falha recuperável.
 - Edições usam uma versão do registro. Se outra pessoa o alterou, a atualização antiga recebe uma mensagem de conflito.

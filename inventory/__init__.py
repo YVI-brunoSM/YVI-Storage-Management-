@@ -57,9 +57,20 @@ def create_app(config=None):
         DB_POOL_TIMEOUT=float(os.getenv('DB_POOL_TIMEOUT', '3')),
         DB_STATEMENT_TIMEOUT_MS=int(os.getenv('DB_STATEMENT_TIMEOUT_MS', '5000')),
         TRUST_PROXY=int(os.getenv('TRUST_PROXY', '0')), TESTING=False,
+        APP_BASE_URL=os.getenv('APP_BASE_URL', '').rstrip('/'),
+        GOOGLE_CLIENT_ID=os.getenv('GOOGLE_CLIENT_ID', ''), GOOGLE_CLIENT_SECRET=os.getenv('GOOGLE_CLIENT_SECRET', ''),
+        EMAIL_TOKEN_KEY=os.getenv('EMAIL_TOKEN_KEY', ''), EMAIL_ENABLED=os.getenv('EMAIL_ENABLED', 'false').lower() == 'true',
+        GMAIL_SENDER=os.getenv('GMAIL_SENDER', 'yvigestaofitness@gmail.com').strip().lower(),
+        EMAIL_REPLY_TO=os.getenv('EMAIL_REPLY_TO', 'yvibrunosilva@gmail.com').strip().lower(),
+        EMAIL_DAILY_LIMIT=100,
     )
     if config:
         app.config.update(config)
+    if os.getenv('EMAIL_DAILY_LIMIT') and not (config and 'EMAIL_DAILY_LIMIT' in config):
+        try:
+            app.config['EMAIL_DAILY_LIMIT'] = max(1, min(450, int(os.environ['EMAIL_DAILY_LIMIT'])))
+        except ValueError:
+            app.config['EMAIL_DAILY_LIMIT'] = 100
     if len(app.config['SECRET_KEY']) < 32 or app.config['SECRET_KEY'].startswith('troque'):
         raise RuntimeError('Configure SECRET_KEY aleatória com pelo menos 32 caracteres.')
     if not app.config['DATABASE_URL']:
@@ -85,6 +96,8 @@ def create_app(config=None):
     app.extensions['realtime'] = Realtime(app)
     from .api import api
     app.register_blueprint(api)
+    from .notifications import notifications
+    app.register_blueprint(notifications)
 
     @app.before_request
     def begin_request():
@@ -101,7 +114,7 @@ def create_app(config=None):
     def finish_request(response):
         response.headers['X-Request-ID'] = getattr(g, 'request_id', '')
         response.headers['X-Content-Type-Options'] = 'nosniff'
-        response.headers['Referrer-Policy'] = 'same-origin'
+        response.headers['Referrer-Policy'] = 'no-referrer' if request.path == '/integrations/gmail/callback' else 'same-origin'
         response.headers['X-Frame-Options'] = 'DENY'
         response.headers['Permissions-Policy'] = 'camera=(), microphone=(), geolocation=()'
         response.headers['Content-Security-Policy'] = "default-src 'self'; script-src 'self'; style-src 'self'; font-src 'self'; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self'; object-src 'none'"
@@ -153,7 +166,7 @@ def create_app(config=None):
     def ready():
         with transaction() as conn:
             row = conn.execute('SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1').fetchone()
-            if not row or row['version'] != '004_branch_filters':
+            if not row or row['version'] != '005_email_notifications':
                 raise ApiError('SCHEMA_NOT_READY', 'Sistema em atualização.', 503)
         return jsonify({'status': 'ready'})
     return app
