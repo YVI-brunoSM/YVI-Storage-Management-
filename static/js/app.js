@@ -4,12 +4,12 @@ import {notificationsPage} from './notifications.js';
 
 const $ = id => document.getElementById(id);
 const state = {user:null, view:'dashboard', branch:'', branchOptions:[], page:1, search:'', category:'', status:'', cursor:null, cursors:[], socket:null, controller:null, sequence:0, metadata:{categories:[],branches:[]}};
-const labels = {dashboard:'Visão geral',products:'Peças e Estoque',movements:'Movimentações',alerts:'Reposição',categories:'Categorias',branches:'Unidades da rede',users:'Usuários e acessos',notifications:'Notificações',reports:'Relatórios',settings:'Configurações'};
-const permission = {dashboard:'dashboard',products:'products_view',movements:'products_view',alerts:'alerts_view',categories:'categories_manage',branches:'branches_manage',users:'users_manage',reports:'reports_export',notifications:'users_manage',settings:'users_manage'};
+const labels = {dashboard:'Visão geral',products:'Peças e Estoque',movements:'Movimentações',alerts:'Reposição',categories:'Categorias',branches:'Unidades da rede',users:'Usuários e acessos',notifications:'Notificações',reports:'Relatórios'};
+const permission = {dashboard:'dashboard',products:'products_view',movements:'products_view',alerts:'alerts_view',categories:'categories_manage',branches:'branches_manage',users:'users_manage',reports:'reports_export',notifications:'users_manage'};
 const permissions = {dashboard:'Visão geral',products_view:'Consultar peças e histórico',products_manage:'Gerenciar peças',costs_view:'Consultar e alterar custos',categories_manage:'Gerenciar categorias',movements_in:'Registrar entradas',movements_out:'Registrar saídas',alerts_view:'Consultar reposição',branches_manage:'Gerenciar unidades',users_manage:'Gerenciar usuários e permissões',reports_export:'Exportar relatórios'};
 let metadataPromise, toastTimer, reloadTimer, editorCleanup = () => {};
 const can = p => !!state.user?.permissions[p]&&!(state.user.branch_restricted&&['products_manage','categories_manage','branches_manage'].includes(p));
-const canView = view => can(permission[view])&&(!['settings','users','notifications'].includes(view)||state.user?.role==='ADMIN');
+const canView = view => can(permission[view])&&(!['users','notifications'].includes(view)||state.user?.role==='ADMIN');
 const num = value => new Intl.NumberFormat('pt-BR',{maximumFractionDigits:3}).format(Number(value));
 const money = value => new Intl.NumberFormat('pt-BR',{style:'currency',currency:'BRL'}).format(Number(value || 0));
 const date = value => value ? new Date(value).toLocaleString('pt-BR',{dateStyle:'short',timeStyle:'short'}) : '—';
@@ -41,7 +41,7 @@ async function loadPage(silent=false) {
   try {
     await refreshBranchFilter(controller.signal);
     if(sequence!==state.sequence)return;
-    const node=await ({dashboard:dashboardPage,products:()=>productsPage(false),alerts:()=>productsPage(true),movements:movementPage,categories:()=>catalogPage('categories'),branches:()=>catalogPage('branches'),users:usersPage,reports:reportsPage,settings:settingsPage,notifications:()=>notificationsPage({signal:controller.signal,cursor:state.cursor,onRefresh:()=>loadPage(),onPage:cursor=>{state.cursor=cursor;return loadPage();}})}[state.view])();
+    const node=await ({dashboard:dashboardPage,products:()=>productsPage(false),alerts:()=>productsPage(true),movements:movementPage,categories:()=>catalogPage('categories'),branches:()=>catalogPage('branches'),users:usersPage,reports:reportsPage,notifications:()=>notificationsPage({signal:controller.signal,cursor:state.cursor,onRefresh:()=>loadPage(),onPage:cursor=>{state.cursor=cursor;return loadPage();}})}[state.view])();
     if(sequence!==state.sequence)return;
     const focused=document.activeElement;const focusName=focused?.dataset.filter;const start=focused?.selectionStart;
     $('page').replaceChildren(node);$('page-status').hidden=true;online(node.dataset.loadError!=='true');
@@ -52,8 +52,8 @@ async function loadPage(silent=false) {
 function branchPath(path) { const url=new URL(path,location.origin);if(state.branch)url.searchParams.set('branch_id',state.branch);return url.pathname+url.search; }
 function fetchPage(path) { return api(branchPath(path),{signal:state.controller.signal}); }
 async function refreshBranchFilter(signal) {
-  $('branch-filter').closest('.unit-toolbar').hidden=['notifications','settings'].includes(state.view);
-  if(['notifications','settings'].includes(state.view))return;
+  $('branch-filter').closest('.unit-toolbar').hidden=['notifications'].includes(state.view);
+  if(['notifications'].includes(state.view))return;
   const rows=await api('/api/branches',{signal});
   if(signal.aborted)return;
   state.branchOptions=rows;
@@ -164,16 +164,8 @@ async function catalogPage(kind) {
 }
 
 async function usersPage() {
-  const [rows,branches]=await Promise.all([fetchPage('/api/users'),api('/api/branches')]);const root=el('div');root.append(heading('Usuários e acessos','Contas, perfis e unidades autorizadas da equipe.',button('+ Novo usuário',()=>userEditor(),'button primary')));
+  const [rows,branches]=await Promise.all([fetchPage('/api/users'),api('/api/branches')]);const root=el('div');root.append(heading('Usuários e acessos','Contas, perfis e unidades autorizadas da equipe.',button('Permissões por perfil',()=>permissionsEditor(),'button quiet'),button('+ Novo usuário',()=>userEditor(),'button primary')));
   root.append(table(['Nome / login','E-mail','Perfil','Unidades autorizadas','Status','Ações'],rows.map(u=>{const name=el('div',undefined,'category-label');const identity=el('div');identity.append(el('strong',u.name),el('span',u.username,'sub'));name.append(avatarNode(u),identity);return [cell(name),cell(u.email),cell(u.role),cell(u.branch_restricted?branches.filter(b=>u.branch_ids.includes(b.id)).map(b=>b.name).join(', ')||'Nenhuma unidade':'Todas as academias'),cell(u.active?'Ativo':'Inativo'),cell(actions(button('Editar',()=>userEditor(u),'button small'),u.id!==state.user.id&&button(u.active?'Desativar':'Ativar',()=>toggleUserEditor(u),'button small quiet')))];})));return root;
-}
-
-async function settingsPage() {
-  const data=await api('/api/admin/settings');const root=el('div');root.append(heading('Configurações','Administração do sistema · acesso exclusivo de administradores.'));
-  const cards=[['Usuários e unidades autorizadas',data.active_users+' usuários ativos. Defina o perfil e as academias que cada pessoa pode acessar.',button('Gerenciar usuários',()=>navigate('users'))],['Permissões por perfil','Defina os recursos liberados para administradores, gerentes e operadores.',button('Editar permissões',()=>permissionsEditor())],['Notificações por e-mail','Gerencie a conexão Gmail, os alertas de estoque e o histórico de envios.',button('Abrir Notificações',()=>navigate('notifications'))]];
-  if(can('branches_manage'))cards.push(['Unidades da rede',data.branches+' unidades cadastradas.',button('Gerenciar unidades',()=>navigate('branches'))]);
-  if(can('categories_manage'))cards.push(['Categorias e ícones','Organize o catálogo e personalize os ícones.',button('Gerenciar categorias',()=>navigate('categories'))]);
-  for(const [title,copy,action] of cards){const card=el('section',undefined,'notification-card');card.append(el('h2',title),el('p',copy,'muted'),actions(action));root.append(card);}return root;
 }
 
 async function reportsPage() {
@@ -277,12 +269,12 @@ function deleteEditor(kind,row) {
 async function userEditor(user=null) {
   try{
     const branches=await api('/api/branches');const ctx=editor(user?'Editar usuário':'Novo usuário');addField(ctx,'Nome completo','name',user?.name||'','text',null,true,true);addField(ctx,'Login','username',user?.username||'','text',null,true);addField(ctx,'E-mail','email',user?.email||'','email');const role=addField(ctx,'Perfil','role',user?.role||'OPERATOR','select',[{value:'OPERATOR',label:'Operador'},{value:'MANAGER',label:'Gerente'},{value:'ADMIN',label:'Administrador'}],true);const pass=addField(ctx,user?'Nova senha (opcional)':'Senha inicial','password','','password',null,!user);pass.minLength=12;pass.maxLength=128;pass.autocomplete='new-password';
-    const mode=addField(ctx,'Acesso às unidades','unit_access',user?(user.branch_restricted?'selected':'all'):'selected','select',[{value:'selected',label:'Somente as unidades selecionadas'},{value:'all',label:'Todas as academias'}],true,true);
-    const group=el('fieldset',undefined,'unit-access full');group.append(el('legend','Unidades autorizadas'));const checks=[];
-    for(const branch of branches){const label=el('label',undefined,'unit-access-option');const input=el('input');input.type='checkbox';input.checked=!!user?.branch_ids?.includes(branch.id);input.value=branch.id;label.append(input,el('span',branch.name));group.append(label);checks.push(input);}
-    const note=el('p','Uma unidade fixa o filtro. Várias unidades permitem alternar somente entre as selecionadas.','muted full');ctx.grid.append(group,note);
-    const sync=()=>{const admin=role.value==='ADMIN';mode.disabled=admin;group.hidden=admin||mode.value==='all';note.textContent=admin?'Administradores mantêm acesso geral para administrar o sistema.':'O acesso será limitado no servidor. Cadastros centrais compartilhados exigem um usuário com acesso geral.';};role.addEventListener('change',sync);mode.addEventListener('change',sync);sync();
-    bindSave(ctx,data=>({path:'/api/users'+(user?'/'+user.id:''),method:user?'PUT':'POST',body:{...data,branch_ids:role.value==='ADMIN'||mode.value==='all'?null:checks.filter(c=>c.checked).map(c=>Number(c.value)),...(user?{version:user.version}:{})}}));
+    const group=el('fieldset',undefined,'unit-access full');group.append(el('legend','Unidades selecionadas'));const checks=[];const selected=new Set(user?.branch_ids||[]);let generalAccess=!!user&&!user.branch_restricted;
+    const allLabel=el('label',undefined,'unit-access-option');const all=el('input');all.type='checkbox';allLabel.append(all,el('span','Todas as academias'));group.append(allLabel);
+    for(const branch of branches){const label=el('label',undefined,'unit-access-option');const input=el('input');input.type='checkbox';input.value=branch.id;label.append(input,el('span',branch.name));group.append(label);checks.push(input);input.addEventListener('change',()=>{generalAccess=false;if(input.checked)selected.add(branch.id);else selected.delete(branch.id);sync();});}
+    const note=el('p',undefined,'muted full');ctx.grid.append(group,note);
+    const sync=()=>{const admin=role.value==='ADMIN';all.checked=admin||generalAccess;all.disabled=admin;checks.forEach(input=>{input.disabled=admin;input.checked=!all.checked&&selected.has(Number(input.value));});note.textContent=admin?'Administradores mantêm acesso a todas as academias.':all.checked?'Este usuário poderá acessar todas as academias.':'Uma unidade fixa o filtro. Várias unidades permitem alternar somente entre as selecionadas.';};role.addEventListener('change',sync);all.addEventListener('change',()=>{generalAccess=all.checked;if(generalAccess)selected.clear();sync();});sync();
+    bindSave(ctx,data=>({path:'/api/users'+(user?'/'+user.id:''),method:user?'PUT':'POST',body:{...data,branch_ids:all.checked?null:checks.filter(c=>c.checked).map(c=>Number(c.value)),...(user?{version:user.version}:{})}}));
   }catch(error){pageError(error);}
 }
 function toggleUserEditor(user) {

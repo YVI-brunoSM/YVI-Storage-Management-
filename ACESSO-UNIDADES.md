@@ -2,12 +2,12 @@
 
 ## O que mudou
 
-- A nova aba **Configurações** é exclusiva de administradores e reúne acesso à gestão de usuários/unidades, permissões por perfil, categorias/ícones e configuração de e-mails. As APIs de administração também exigem o perfil ADMIN.
+- A gestão de usuários e permissões fica em **Usuários e acessos**. E-mails ficam em **Notificações**; categorias e unidades mantêm suas próprias páginas. A aba Configurações foi removida. As APIs de administração exigem o perfil ADMIN.
 - **Notificações** aparece acima de **Relatórios** no menu lateral.
-- Ao criar ou editar usuários, o administrador escolhe **Todas as academias** ou **Somente as unidades selecionadas**, com caixas de seleção para uma ou várias unidades.
+- Ao criar ou editar usuários, o administrador usa **Unidades selecionadas**, sempre visível: **Todas as academias** é a primeira opção, seguida das unidades individuais. Marcar uma unidade desmarca o acesso geral; marcar Todas as academias limpa a seleção individual.
 - Uma unidade autorizada fixa o filtro. Várias unidades permitem consultar todas as autorizadas em conjunto ou escolher uma delas. O servidor impede a consulta a unidades fora dessa lista, inclusive em buscas, detalhes de peças, relatórios CSV e movimentações.
 - Alterar o usuário encerra suas sessões antigas. O acesso atualizado é aplicado quando ele entra novamente.
-- O ícone da aba do navegador agora é uma engrenagem vetorial, sem o texto YVI, com fundo transparente e contorno branco.
+- O ícone da aba do navegador agora é a engrenagem preta com o cérebro vermelho no centro, sem áreas brancas e com fundo transparente.
 
 ## Como publicar
 
@@ -15,7 +15,7 @@ Atualize o repositório usado pelo Railway com a aplicação de `yvi-sistema-atu
 
 Caso a migração não esteja configurada antes do deploy, execute `python migrate.py` no serviço web usando a mesma `DATABASE_URL` da aplicação. Não altere nem reaplique manualmente arquivos históricos de migração. A migração acrescenta o campo e a tabela de autorização e mantém os dados existentes.
 
-As contas existentes preservam o acesso geral. Após publicar, abra **Configurações → Gerenciar usuários → Editar** e defina as unidades de cada gerente/operador. Administradores mantêm acesso geral. Para novos usuários, a janela sugere selecionar as unidades explicitamente.
+As contas existentes preservam o acesso geral. Após publicar, abra **Usuários e acessos → Editar** e defina as unidades de cada gerente/operador. Administradores mantêm acesso geral. Para novos usuários, a janela sugere selecionar as unidades explicitamente.
 
 Para João acessar apenas uma academia: selecione o perfil Gerente, escolha **Somente as unidades selecionadas**, marque a academia e salve. Para acesso a várias, marque todas as permitidas. João precisará entrar novamente após a alteração.
 

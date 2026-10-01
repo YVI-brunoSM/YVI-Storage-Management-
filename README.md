@@ -92,4 +92,4 @@ Licenças das fontes e do cliente Socket.IO estão em `static/fonts/` e `static/
 
 ## Administração e unidades autorizadas
 
-A aba Configurações reúne os recursos administrativos. Usuários podem ter acesso geral ou a uma lista de unidades. Publique com `python migrate.py` para aplicar `006_user_branch_access` antes de iniciar esta versão. As contas existentes preservam o acesso geral até serem revisadas. Veja [o guia de configuração de unidades](ACESSO-UNIDADES.md).
+Os recursos administrativos ficam nas páginas Usuários e acessos, Notificações, Categorias e Unidades da rede. Usuários podem ter acesso geral ou a uma lista de unidades. Publique com `python migrate.py` para aplicar `006_user_branch_access` antes de iniciar esta versão. As contas existentes preservam o acesso geral até serem revisadas. Veja [o guia de configuração de unidades](ACESSO-UNIDADES.md).
