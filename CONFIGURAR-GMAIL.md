@@ -41,6 +41,8 @@ https://www.googleapis.com/auth/userinfo.email
 
 O sistema pede `openid email` para confirmar que a conta conectada é o Gmail remetente esperado. Isso identifica o endereço autorizado; não dá acesso à leitura de mensagens. `email` corresponde ao escopo de informações do endereço no console.
 
+Em **Branding / Marca**, informe a página inicial `https://yvi-storage--management.up.railway.app/` e a política de privacidade `https://yvi-storage--management.up.railway.app/politica-de-privacidade`. Publique esta versão do sistema antes de cadastrar o link e confirme que ele abre em uma janela anônima, sem login. A política também fica no rodapé da Visão geral. Utilize um nome de aplicativo coerente com a política, como **YVI — Notificações**.
+
 Em **Público-alvo**, use **Externo**, pois a conta é Gmail comum. Se estiver em Teste, adicione `yvigestaofitness@gmail.com` como usuário de teste. Os destinatários não precisam ser adicionados.
 
 Para operação contínua, altere o status para **Em produção / Publicar aplicativo** antes da autorização definitiva. Em Teste, o token de renovação desse acesso expira em sete dias. Publicar não é o mesmo que concluir verificação do Google e não torna o estoque público. O Google prevê exceções de verificação para uso pessoal limitado; caso o console exija uma etapa adicional, registre a mensagem e peça orientação. Autorizações ainda podem ser revogadas depois de publicadas, por exemplo por alterações na conta.
@@ -136,6 +138,8 @@ Não faça movimentações falsas no estoque real para testar o envio. O botão 
 
 | Situação | O que fazer |
 | --- | --- |
+| Notificações informa banco em atualização | No serviço web do Railway, execute `python migrate.py` e confirme que termina sem erro. Use a mesma `DATABASE_URL` da aplicação. Configure também esse comando em **Settings → Deploy → Pre-deploy Command** para os próximos deploys; não dependa apenas do arquivo railway.toml |
+| Notificações mostra erro com protocolo | Nos logs do serviço web, localize o protocolo e envie ao suporte apenas `exception` e `frames`. Não envie credenciais, tokens, conteúdo de variáveis nem dados do banco. O protocolo sozinho não identifica a causa |
 | `redirect_uri_mismatch` no Google | Confira o URI exato do passo 2, no mesmo cliente do arquivo JSON |
 | Conta não permitida em Teste | Adicione o Gmail remetente aos usuários de teste desse projeto |
 | Conectar Gmail desabilitado | Abra Ver configuração pendente e confira as variáveis do serviço web |
@@ -150,5 +154,7 @@ Desconectar remove as credenciais do sistema e cancela mensagens pendentes. Para
 ## Validação desta entrega
 
 Uma execução completa passou com 70 testes de backend. Após a revisão final, os 27 testes específicos de notificações passaram, incluindo sete verificações adicionais de falhas HTTP e destinatário revogado durante renovação de token. Os cinco testes do cliente HTTP passaram; a sintaxe dos módulos JavaScript foi conferida.
+
+Na atualização de 01/10/2026, os 81 testes de backend passaram, incluindo acesso público à política e erros recuperáveis de estrutura/configuração do banco de e-mails.
 
 Os testes usam Postgres local descartável e respostas Google simuladas. A autorização Google real e a entrega na caixa de entrada só poderão ser confirmadas após os passos acima.

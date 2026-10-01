@@ -1,0 +1,46 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Política de privacidade · YVI</title>
+  <script src="/static/js/theme.js"></script>
+  <link rel="stylesheet" href="/static/css/style.css">
+  <link rel="icon" href="/static/img/yvi-company-logo.png">
+</head>
+<body>
+  <header class="top"><a href="/" class="brand company-brand" aria-label="Voltar ao sistema YVI"><img src="/static/img/yvi-company-logo.png" alt="YVI" width="1280" height="720"></a><a href="/#dashboard" class="button quiet">Voltar ao sistema</a></header>
+  <main class="privacy-page">
+    <p class="eyebrow">YVI · Gestão de peças e estoque · YVI — Notificações</p>
+    <h1>Política de privacidade</h1>
+    <p class="muted">Última atualização: 1º de outubro de 2026.</p>
+    <p>Esta política descreve o tratamento de dados no sistema interno de estoque da YVI e em sua integração de notificações com o Gmail. O acesso às operações do sistema é restrito à equipe autorizada; esta página é pública.</p>
+    <section><h2>Dados e finalidades</h2>
+      <p>O sistema registra nome, usuário, e-mail, perfil de acesso, foto de perfil quando cadastrada, senha protegida por hash e informações de sessão. Também registra peças, unidades, quantidades, valores, movimentações, responsáveis, datas e registros de auditoria. Esses dados permitem controlar o estoque, administrar acessos, acompanhar operações e investigar falhas.</p>
+      <p>As notificações de reposição usam os dados necessários à operação, como peça, código, categoria, localização, saldo, mínimo, medida, unidade de destino, responsável e data. Administradores e gerentes ativos com e-mail válido recebem os alertas quando habilitados. O teste é enviado ao endereço de contato configurado no sistema.</p>
+    </section>
+    <section><h2>Acesso à conta Google</h2>
+      <p>Um administrador autoriza a conta remetente por OAuth. O sistema solicita <strong>gmail.send</strong> para enviar mensagens e <strong>openid e email</strong> para conferir a identidade e o endereço verificado da conta autorizada. Essa autorização não substitui o login interno.</p>
+      <p>A integração envia mensagens operacionais geradas pelo sistema. Ela não solicita a senha do Google nem permissão para ler, pesquisar ou excluir mensagens da caixa de entrada. O endereço da conta remetente e a identificação das mensagens enviadas são usados para administrar a conexão e acompanhar os envios.</p>
+      <p>O uso e a transferência de informações obtidas das APIs do Google seguem a <a href="https://developers.google.com/terms/api-services-user-data-policy" rel="noreferrer">Política de Dados do Usuário dos Serviços de API do Google</a>, incluindo os requisitos de Uso Limitado. Esses dados não são vendidos, usados para publicidade, avaliação de crédito ou treinamento de modelos de inteligência artificial. O acesso humano a dados Google limita-se às situações permitidas por essa política, como autorização expressa, segurança ou obrigação legal.</p>
+    </section>
+    <section><h2>Armazenamento e compartilhamento</h2>
+      <p>O sistema foi preparado para hospedagem no Railway e armazenamento em PostgreSQL. O token de renovação da autorização Google é armazenado criptografado; credenciais ficam na configuração do servidor. O envio utiliza a API do Gmail, compartilhando com o Google o conteúdo e os destinatários necessários à entrega. Os destinatários recebem as informações operacionais incluídas na mensagem.</p>
+      <p>A equipe autorizada acessa informações conforme suas permissões. Os serviços de hospedagem e entrega processam dados para executar suas funções e podem manter registros conforme suas próprias políticas. Dados também podem ser tratados para segurança ou atendimento de obrigações legais.</p>
+    </section>
+    <section><h2>Prazo de conservação e desconexão</h2>
+      <p>O serviço de envio faz a limpeza dos registros concluídos de e-mail após 90 dias. Mensagens pendentes, com falha ou resultado incerto podem permanecer para acompanhamento. Dados de usuários, estoque e auditoria são conservados conforme as necessidades operacionais e de prestação de contas da empresa.</p>
+      <p>O administrador pode desconectar o Gmail em Notificações. A operação remove o token armazenado no sistema, pausa os alertas e cancela mensagens ainda pendentes; um envio já em andamento pode ser concluído. O acesso também pode ser revogado nas conexões da Conta Google. Cópias de segurança e registros dos provedores seguem seus respectivos ciclos de conservação.</p>
+    </section>
+    <section><h2>Segurança e preferências no navegador</h2>
+      <p>O sistema utiliza controle de acesso por perfil, proteção de sessão e comunicação HTTPS em produção. Os logs são preparados para não registrar senhas, tokens ou valores sensíveis de erros SQL. Nenhuma medida elimina todos os riscos de segurança.</p>
+      <p>Cookies mantêm a sessão de acesso. A preferência de tema é armazenada no navegador. Os filtros de unidade são individuais na interface e não alteram a seleção de outros usuários. O sistema não incorpora ferramentas de publicidade ou análise de visitas de terceiros.</p>
+    </section>
+    <section><h2>Contato e alterações</h2>
+      <p>Para dúvidas sobre privacidade, correção de informações ou solicitação de exclusão, entre em contato com a administração da YVI pelo endereço <a href="mailto:yvibrunosilva@gmail.com">yvibrunosilva@gmail.com</a>. As solicitações serão avaliadas considerando a identificação do solicitante e a necessidade de conservação dos registros.</p>
+      <p>Novos usos de dados ou permissões Google serão informados nesta política e na interface antes de sua adoção, com nova autorização quando necessária.</p>
+    </section>
+    <footer class="page-footer"><span>YVI · Gestão de peças</span><a href="/#dashboard">Voltar ao sistema</a></footer>
+  </main>
+</body>
+</html>

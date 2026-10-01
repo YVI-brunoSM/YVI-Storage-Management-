@@ -85,7 +85,9 @@ def available(settings):
 @notifications.get('/api/notifications')
 @require(admin=True)
 def overview():
-    settings = g.conn.execute('SELECT * FROM email_settings WHERE id=1').fetchone()
+    settings = g.conn.execute('SELECT enabled,connection_status,refresh_token_cipher,client_id,sender,test_accepted_at,worker_seen_at FROM email_settings WHERE id=1').fetchone()
+    if not settings:
+        raise ApiError('EMAIL_SETTINGS_MISSING', 'A configuração de e-mail está ausente no banco. Peça ao suporte para restaurar o registro de configuração; os envios devem permanecer pausados.', 503)
     limit = 30
     before = request.args.get('before_id')
     params = (integer(before, 'before_id'),) if before else ()

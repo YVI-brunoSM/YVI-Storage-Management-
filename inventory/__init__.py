@@ -140,6 +140,9 @@ def create_app(config=None):
     def handle_error(exc):
         if isinstance(exc, ApiError):
             return error_response(exc.code, exc.message, exc.status, exc.fields)
+        if isinstance(exc, (errors.UndefinedTable, errors.UndefinedColumn)):
+            app.logger.error('schema_not_ready request_id=' + getattr(g, 'request_id', ''), exc_info=True)
+            return error_response('SCHEMA_NOT_READY', 'O banco precisa ser atualizado. Peça ao administrador para executar python migrate.py no serviço do sistema no Railway.', 503)
         if isinstance(exc, (errors.LockNotAvailable, errors.DeadlockDetected, errors.SerializationFailure)):
             return error_response('BUSY', 'Outro usuário está concluindo uma operação. Aguarde e tente novamente.', 409)
         if isinstance(exc, (PoolTimeout, TooManyRequests, OperationalError, InterfaceError)):
@@ -157,6 +160,10 @@ def create_app(config=None):
     @app.get('/')
     def index():
         return render_template('index.html')
+
+    @app.get('/politica-de-privacidade')
+    def privacy():
+        return render_template('privacy.html')
 
     @app.get('/health/live')
     def live():

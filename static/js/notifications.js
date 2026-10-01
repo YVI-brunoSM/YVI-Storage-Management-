@@ -5,7 +5,15 @@ const node=(tag,text,cls)=>{const n=document.createElement(tag);if(text!==undefi
 const date=value=>value?new Date(value).toLocaleString('pt-BR'):'—';
 
 export async function notificationsPage({signal,cursor,onPage,onRefresh}) {
-  const data=await api('/api/notifications'+(cursor?'?before_id='+cursor:''),{signal});
+  let data;
+  try{data=await api('/api/notifications'+(cursor?'?before_id='+cursor:''),{signal});}
+  catch(error){
+    if(error.name==='AbortError'||error.status===401)throw error;
+    const root=node('div',undefined,'notifications-page');root.dataset.loadError='true';root.append(node('h1','Notificações'));
+    const card=node('section',undefined,'notification-card');const message=node('p',error.message+(error.requestId?' Protocolo: '+error.requestId:''),'notice error');message.setAttribute('role','alert');card.append(message);
+    card.append(node('p','As configurações e o histórico não puderam ser carregados. Nenhum envio foi solicitado por esta página.','muted'));
+    const retry=node('button','Tentar novamente','button');retry.type='button';retry.addEventListener('click',()=>onRefresh());card.append(retry);root.append(card);return root;
+  }
   const root=node('div',undefined,'notifications-page');
   const message=node('p',undefined,'notice');message.hidden=true;message.setAttribute('role','status');
   let busy=false;

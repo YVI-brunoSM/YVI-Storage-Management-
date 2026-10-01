@@ -35,6 +35,7 @@ async function loadPage(silent=false) {
   if(!state.user)return;
   state.controller?.abort();const controller=new AbortController();state.controller=controller;const sequence=++state.sequence;
   if(!silent)$('page').setAttribute('aria-busy','true');
+  if($('page').dataset.view!==state.view){$('page').dataset.view=state.view;$('page').replaceChildren(heading(labels[state.view],'Carregando…'));$('page-status').hidden=true;}
   document.querySelectorAll('[data-view]').forEach(b=>{if(b.dataset.view===state.view)b.setAttribute('aria-current','page');else b.removeAttribute('aria-current');});
   try {
     await refreshBranchFilter(controller.signal);
@@ -42,7 +43,7 @@ async function loadPage(silent=false) {
     const node=await ({dashboard:dashboardPage,products:()=>productsPage(false),alerts:()=>productsPage(true),movements:movementPage,categories:()=>catalogPage('categories'),branches:()=>catalogPage('branches'),users:usersPage,reports:reportsPage,notifications:()=>notificationsPage({signal:controller.signal,cursor:state.cursor,onRefresh:()=>loadPage(),onPage:cursor=>{state.cursor=cursor;return loadPage();}})}[state.view])();
     if(sequence!==state.sequence)return;
     const focused=document.activeElement;const focusName=focused?.dataset.filter;const start=focused?.selectionStart;
-    $('page').replaceChildren(node);$('page-status').hidden=true;online(true);
+    $('page').replaceChildren(node);$('page-status').hidden=true;online(node.dataset.loadError!=='true');
     if(focusName){const replacement=$('page').querySelector(`[data-filter="${focusName}"]`);replacement?.focus();if(replacement?.type==='search'&&start!==null)replacement.setSelectionRange(start,start);}
   } catch(error) { if(sequence===state.sequence)pageError(error); }
   finally {if(sequence===state.sequence)$('page').setAttribute('aria-busy','false');}
@@ -131,6 +132,7 @@ async function dashboardPage() {
   const split=el('div',undefined,'split');const recent=el('section');recent.append(el('div',undefined,'section-heading'));recent.firstChild.append(el('h2','Últimas movimentações'));stats.recent_movements.forEach(m=>{const row=el('div',undefined,'activity');const text=el('div');text.append(el('strong',m.product_name||'Peça legada'),el('small',(m.branch_name_snapshot||'Estoque central')+' · '+date(m.timestamp)));row.append(text,el('span',(m.type==='SAIDA'?'−':'+')+num(m.quantity)+' '+(m.product_unit||''),m.type==='SAIDA'?'movement-out-text':'movement-in-text'));recent.append(row);});if(!stats.recent_movements.length)recent.append(el('p','Ainda não há movimentações.','empty'));
   const stock=el('section');stock.append(el('div',undefined,'section-heading'));stock.firstChild.append(el('h2','Saldos centrais por medida'));stock.append(table(['Medida','Saldo central'],stats.stock_by_unit.map(s=>[cell(s.unit),cell(num(s.quantity),'numeric')])));split.append(recent,stock);root.append(split);
   if(can('alerts_view'))root.append(button('Ver peças que precisam de reposição',()=>navigate('alerts'),'text-button'));
+  const footer=el('footer',undefined,'page-footer');const privacy=el('a','Política de privacidade');privacy.href='/politica-de-privacidade';footer.append(el('span','YVI · Gestão de peças'),privacy);root.append(footer);
   return root;
 }
 

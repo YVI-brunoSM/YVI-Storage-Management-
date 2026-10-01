@@ -68,3 +68,11 @@
 .unit-toolbar.filtered{border-bottom-color:var(--accent)}
 .notification-card{background:var(--panel);border:1px solid var(--line);padding:24px;margin:0 0 22px}.notification-card h2{margin:0 0 18px}.notification-card h3{margin:24px 0 12px}.notification-card p{line-height:1.6;margin:12px 0}.notification-card .actions{margin:18px 0;flex-wrap:wrap}.notification-card details{margin:16px 0}.notification-card summary{cursor:pointer}.notification-url{display:block;overflow-wrap:anywhere;margin-top:12px;font-size:12px}.notification-recipients{padding-left:20px;line-height:1.9}.notifications-page .table-wrap{margin-top:18px}.notifications-page td .sub{max-width:310px;white-space:normal;overflow-wrap:anywhere}
 @media(max-width:600px){.company-brand{width:148px;height:62px}.unit-toolbar{gap:12px}.unit-toolbar label{min-width:0;flex:1 1 100%}.unit-toolbar p{flex-basis:100%;padding:0}.top{padding:14px 18px}}
+/* Public privacy page and dashboard footer. */
+.page-footer{display:flex;justify-content:space-between;gap:1rem;flex-wrap:wrap;margin-top:2.5rem;padding-top:1rem;border-top:1px solid var(--line);font-size:.875rem;color:var(--muted)}
+.page-footer a,.privacy-page a{color:inherit;text-underline-offset:4px}
+.privacy-page{max-width:900px;margin:0 auto;padding:3rem 1.5rem;line-height:1.75}
+.privacy-page h1{font-size:clamp(2rem,5vw,3.5rem);line-height:1.2}
+.privacy-page section{margin-top:2rem}
+.privacy-page p+p{margin-top:1rem}
+.privacy-page h2{font-size:1.5rem;margin-bottom:.75rem}
