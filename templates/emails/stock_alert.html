@@ -1,0 +1,23 @@
+<!doctype html>
+<html lang="pt-BR">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>{{ title }}</title></head>
+<body style="margin:0;padding:24px 12px;background:#f7f4ee;color:#302d28;font:15px Arial,sans-serif;line-height:1.5">
+{% macro fields(rows) -%}
+{% for label, value in rows %}<p style="margin:0 0 8px;overflow-wrap:anywhere"><strong>{{ label }}:</strong> {{ value }}</p>{% endfor %}
+{%- endmacro %}
+<table role="presentation" style="width:100%;max-width:640px;margin:0 auto;border-collapse:collapse;background:#fff"><tr><td style="padding:28px">
+<p style="margin:0 0 12px;color:#a34b26;font-weight:bold;letter-spacing:2px">YVI GESTÃO</p>
+<h1 style="margin:0 0 24px;font-size:22px;line-height:1.3;overflow-wrap:anywhere">{{ title }}</h1>
+<h2 style="margin:0 0 12px;font-size:16px">Dados da peça</h2>
+{{ fields(details) }}
+<table role="presentation" style="width:100%;margin:20px 0;border-collapse:collapse;background:#f7f4ee;border-left:4px solid {{ '#b42318' if state == 'out' else '#a34b26' }}"><tr><td style="padding:16px">
+<p style="margin:0 0 4px;font-weight:bold">Estoque Atual</p>
+<p style="margin:0;font-size:26px;font-weight:bold">{{ balance }}</p>
+<p style="margin:8px 0 0;font-size:12px;color:#635d55">{{ snapshot_note }}</p>
+</td></tr></table>
+<h2 style="margin:0 0 12px;font-size:16px">{{ record_title }}</h2>
+{{ fields(record) }}
+<p style="margin:24px 0 0"><a href="{{ url }}" style="color:#a34b26">Consultar no sistema</a></p>
+<p style="margin:16px 0 0;font-size:12px;color:#635d55">Referência: {{ reference }}</p>
+</td></tr></table>
+</body></html>

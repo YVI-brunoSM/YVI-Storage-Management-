@@ -317,6 +317,8 @@ def test_summary_and_mime_escape_content(mail, client, db):
     assert '<script>' not in msg.get_body(preferencelist=('html',)).get_content()
     assert 'purchase_price' not in msg.as_string()
     assert msg['Reply-To']=='owner@example.test'
+    movement = db.execute('SELECT timestamp FROM movements ORDER BY id DESC LIMIT 1').fetchone()
+    assert datetime.fromisoformat(row['payload']['at']) == movement['timestamp']
 
 
 def test_manager_can_receive_but_cannot_manage(mail):

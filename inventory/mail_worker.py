@@ -1,15 +1,24 @@
 """Short database reservations, HTTPS outside transactions, conservative send recovery."""
 from datetime import datetime, timezone
+from decimal import Decimal
 from email.message import EmailMessage
 from email.policy import SMTP
 from email.utils import format_datetime
 from html import escape
 from zoneinfo import ZoneInfo
-from flask import current_app
+from flask import current_app, render_template
 from .db import transaction
 from .branch_access import product_scope
-from .notifications import available
+from .notifications import available, stock_email_title
 from . import mail_transport as transport
+
+
+def stock_quantity(value, unit):
+    """Brazilian thousands/decimal separators, without artificial trailing zeros."""
+    number = format(Decimal(str(value)), ',f')
+    if '.' in number:
+        number = number.rstrip('0').rstrip('.')
+    return number.replace(',', '_').replace('.', ',').replace('_', '.') + ' ' + unit
 
 
 def render_message(row, sender):
@@ -29,18 +38,26 @@ def render_message(row, sender):
         if payload.get('truncated'):
             lines.append('Exibindo as primeiras 1.000 peças. Consulte a lista completa no sistema.')
     else:
-        title = ('Esgotado' if payload['state'] == 'out' else 'Repor') + ' — ' + payload['name']
-        lines = ['Estoque Geral', 'Peça: ' + payload['name'], 'Código: ' + payload['code'], 'Categoria: ' + payload['category'],
-            'Localização: ' + payload['location'], f"Saldo anterior: {payload['before']} {payload['unit']}",
-            f"Saldo no alerta: {payload['stock']} {payload['unit']}", f"Estoque mínimo: {payload['minimum']} {payload['unit']}",
-            'Ocorrência: ' + payload['operation'], 'Responsável: ' + payload['actor'], 'Data: ' + when]
+        title = stock_email_title(payload)
+        details = [('Peça', payload['name']), ('Código', str(payload['code'])), ('Categoria', payload['category']),
+                   ('Localização', payload['location']), ('Estoque mínimo', stock_quantity(payload['minimum'], payload['unit']))]
+        balance = stock_quantity(payload['stock'], payload['unit'])
+        # Minimum edits and opening allocations are records, not stock movements.
+        record_title = 'Última movimentação' if payload.get('quantity') is not None else 'Registro que gerou o alerta'
+        record = [('Data', when), ('Ocorrência', payload['operation'])]
         if payload.get('quantity'):
-            lines.append(f"Quantidade movimentada: {payload['quantity']} {payload['unit']}")
+            record.append(('Quantidade movimentada', stock_quantity(payload['quantity'], payload['unit'])))
         if payload.get('branch'):
-            lines.append('Unidade: ' + payload['branch'])
+            unit_label = ('Unidade da movimentação' if payload['operation'].startswith('Transferência')
+                          else 'Unidade de destino da movimentação') if payload.get('quantity') is not None else 'Unidade'
+            record.append((unit_label, payload['branch']))
+        record.append(('Responsável', payload['actor']))
         if payload.get('notes'):
-            lines.append('Observação: ' + payload['notes'])
-        lines.append('Os valores correspondem ao momento do alerta; o saldo atual pode ter mudado.')
+            record.append(('Observação', payload['notes']))
+        snapshot_note = 'Estoque atual no momento deste registro. Movimentações posteriores podem alterar o saldo.'
+        lines = ['DADOS DA PEÇA', *[label + ': ' + str(value) for label, value in details], '',
+                 'ESTOQUE ATUAL: ' + balance, snapshot_note, '', record_title.upper(),
+                 *[label + ': ' + str(value) for label, value in record]]
     title = ' '.join(title.split())[:160]
     url = current_app.config['APP_BASE_URL'].rstrip('/') + ('/#notifications' if row['kind'] == 'test' else '/#alerts')
     lines.append(f"Referência: YVI-{row['id']}")
@@ -48,11 +65,14 @@ def render_message(row, sender):
     message['From'] = f'YVI — Notificações <{sender}>'
     message['To'] = row['recipient']
     message['Reply-To'] = current_app.config['EMAIL_REPLY_TO']
-    message['Subject'] = f"[YVI #{row['id']}] {title}"
+    message['Subject'] = title if row['kind'] == 'stock' else f"[YVI #{row['id']}] {title}"
     message['Date'] = format_datetime(datetime.now(timezone.utc))
     message.set_content('\n'.join(lines) + '\n\nConsultar no sistema: ' + url)
     paragraphs = ''.join('<p style="margin:0 0 10px;white-space:pre-line">' + escape(line) + '</p>' for line in lines)
-    message.add_alternative('<!doctype html><html lang="pt-BR"><body style="margin:0;background:#f7f4ee;color:#302d28;font:15px Arial,sans-serif"><div style="max-width:640px;margin:24px auto;padding:28px;background:#fff"><p style="font-weight:bold;letter-spacing:3px">YVI</p><h1 style="font-size:23px">' + escape(title) + '</h1>' + paragraphs + '<p><a href="' + escape(url, quote=True) + '" style="color:#a34b26">Consultar no sistema</a></p></div></body></html>', subtype='html')
+    html = render_template('emails/stock_alert.html', title=title, details=details, balance=balance,
+                           record_title=record_title, record=record, snapshot_note=snapshot_note,
+                           reference=f"YVI-{row['id']}", url=url, state=payload['state']) if row['kind'] == 'stock' else '<!doctype html><html lang="pt-BR"><body style="margin:0;background:#f7f4ee;color:#302d28;font:15px Arial,sans-serif"><div style="max-width:640px;margin:24px auto;padding:28px;background:#fff"><p style="font-weight:bold;letter-spacing:3px">YVI</p><h1 style="font-size:23px">' + escape(title) + '</h1>' + paragraphs + '<p><a href="' + escape(url, quote=True) + '" style="color:#a34b26">Consultar no sistema</a></p></div></body></html>'
+    message.add_alternative(html, subtype='html')
     return message
 
 

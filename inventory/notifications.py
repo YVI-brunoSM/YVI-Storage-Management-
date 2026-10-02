@@ -39,6 +39,11 @@ def stock_state(stock, minimum):
     return 'out' if Decimal(stock) == 0 else 'low' if Decimal(stock) <= Decimal(minimum) else 'available'
 
 
+def stock_email_title(payload):
+    state = 'ESGOTADO' if payload.get('state') == 'out' else 'REPOR'
+    return ' '.join(('YVI GESTÃO - ' + state + ' ' + payload.get('name', 'Peça')).split())[:160]
+
+
 def recipient_rows(conn):
     return conn.execute("SELECT id,name,role,email,branch_restricted,ARRAY(SELECT b.name FROM user_branches ub JOIN branches b ON b.id=ub.branch_id WHERE ub.user_id=users.id ORDER BY b.name) AS branch_names FROM users WHERE active=1 AND role IN ('ADMIN','MANAGER') ORDER BY id").fetchall()
 
@@ -96,7 +101,7 @@ def overview():
     items = []
     for row in rows[:limit]:
         payload = row.pop('payload')
-        row['subject'] = ('Teste de conexão' if row['kind'] == 'test' else 'Resumo de reposição' if row['kind'] == 'summary' else ('Esgotado' if payload.get('state') == 'out' else 'Repor') + ' · ' + payload.get('name', 'Peça'))
+        row['subject'] = ('Teste de conexão' if row['kind'] == 'test' else 'Resumo de reposição' if row['kind'] == 'summary' else stock_email_title(payload))
         row['error_message'] = ERRORS.get(row.pop('last_error'), '')
         items.append(row)
     recipients = [{**row, 'valid': transport.valid_email((row['email'] or '').strip())} for row in recipient_rows(g.conn)]

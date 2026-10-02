@@ -292,7 +292,7 @@ def write_movement(product, mov_type, qty, branch_id, destination, notes, revers
     total = (price*qty).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
     if total >= Decimal('1000000000000000'):
         invalid('quantity', 'Valor total da operação excede o limite.')
-    row = g.conn.execute('INSERT INTO movements(product_id,type,quantity,unit_price,total_price,branch_id,destination_equipment,notes,user_id,product_code,product_name,product_unit,actor_name,branch_name_snapshot,stock_after,reversal_of,transfer_id) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
+    row = g.conn.execute('INSERT INTO movements(product_id,type,quantity,unit_price,total_price,branch_id,destination_equipment,notes,user_id,product_code,product_name,product_unit,actor_name,branch_name_snapshot,stock_after,reversal_of,transfer_id) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id,timestamp',
         (product['id'],mov_type,qty,price,total,branch_id,destination,notes,g.user['id'],product['code'],product['name'],product['unit'],g.user['name'],branch['name'],new_stock,reversal_of,transfer_id)).fetchone()
     g.conn.execute('UPDATE product_stocks SET quantity=%s,version=version+1 WHERE product_id=%s AND branch_id=%s', (new_stock,product['id'],branch_id))
     g.conn.execute('UPDATE products SET current_stock=current_stock+%s,version=version+1 WHERE id=%s', (delta,product['id']))
@@ -302,7 +302,7 @@ def write_movement(product, mov_type, qty, branch_id, destination, notes, revers
         previous = {**product, 'current_stock': stock['quantity'], 'min_stock': stock['min_stock'], 'location': branch['name']}
         stock_event(g.conn, previous, {**previous, 'current_stock': new_stock},
             {'operation': ('Transferência · ' if transfer_id else 'Estorno · ' if reversal_of else '') + ('Entrada' if mov_type=='ENTRADA' else 'Saída'),
-             'actor':g.user['name'],'quantity':str(qty),'branch':branch['name'],'branch_id':branch_id,'notes':notes}, 'movement:'+str(row['id']))
+             'actor':g.user['name'],'quantity':str(qty),'branch':branch['name'],'branch_id':branch_id,'notes':notes,'at':row['timestamp'].isoformat()}, 'movement:'+str(row['id']))
     return {'id':row['id'],'new_stock':new_stock,'branch_id':branch_id,'message':'Movimentação registrada.'}
 
 
