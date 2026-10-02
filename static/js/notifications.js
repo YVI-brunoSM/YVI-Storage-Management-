@@ -25,7 +25,7 @@ export async function notificationsPage({signal,cursor,onPage,onRefresh}) {
   });return b;};
   const unavailable=(b,value)=>{b.disabled=value;b.dataset.unavailable=String(value);return b;};
   const run=async(path,body={})=>{const result=await api('/api/notifications/'+path,{method:'POST',body});await onRefresh();return result;};
-  const top=node('div',undefined,'page-heading');const title=node('div');title.append(node('p','Estoque central · YVI','eyebrow'),node('h1','Notificações'),node('p','Alertas de reposição para administradores e gerentes.','muted'));
+  const top=node('div',undefined,'page-heading');const title=node('div');title.append(node('p','Estoque Geral · YVI','eyebrow'),node('h1','Notificações'),node('p','Alertas de reposição para administradores e gerentes.','muted'));
   top.append(title,action('Atualizar',()=>onRefresh()));root.append(top,message);
   const connection=node('section',undefined,'notification-card');connection.append(node('h2','Conta de envio'));
   const account=node('p');account.append(node('strong',data.sender),node('span',data.connected?' · Conectada':' · Não conectada',data.connected?'movement-in-text':'movement-out-text'));connection.append(account,node('p','Respostas para '+data.reply_to,'muted'));
@@ -53,7 +53,7 @@ export async function notificationsPage({signal,cursor,onPage,onRefresh}) {
   connection.append(node('p','Última comunicação: '+date(data.worker_seen_at)+' · Limite local: '+data.daily_limit+' tentativas em 24 horas.','muted'));
   root.append(connection);
   const delivery=node('section',undefined,'notification-card');delivery.append(node('h2','Alertas de estoque'),node('p',data.enabled?'Ativados: novas ocorrências de Repor e Esgotado entram na fila.':'Pausados: novas ocorrências não geram e-mails.','notice'));
-  delivery.append(node('p','A seleção de unidade nas outras páginas não altera os destinatários. Os e-mails respeitam as unidades autorizadas de cada usuário. Os saldos referem-se ao estoque central.','muted'));
+  delivery.append(node('p','A seleção de unidade nas outras páginas não altera os destinatários. Os e-mails respeitam as unidades autorizadas de cada usuário. Cada alerta informa o saldo e o mínimo da unidade afetada.','muted'));
   const deliveryButtons=node('div',undefined,'actions');
   deliveryButtons.append(unavailable(action(data.enabled?'Pausar alertas':'Ativar alertas',async()=>{
     if(!data.enabled&&!confirm('Você recebeu o teste? Ativar enviará os novos alertas aos administradores e gerentes listados abaixo.'))return;

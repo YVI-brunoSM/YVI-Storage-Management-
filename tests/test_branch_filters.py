@@ -10,6 +10,8 @@ def scoped_data(db):
     db.execute("INSERT INTO branches(name) VALUES('Norte'),('Sem movimentos')")
     db.execute("INSERT INTO categories(name) VALUES('Categoria Norte'),('Sem vínculo')")
     db.execute("INSERT INTO products(code,name,category_id,unit,current_stock,min_stock,purchase_price,sale_price) VALUES('N02','Peça Norte',2,'un',0,2,100,200),('S03','Sem destino',3,'un',15,3,50,80)")
+    db.execute('INSERT INTO product_stocks(product_id,branch_id,quantity,min_stock) VALUES(2,2,0,2)')
+    db.execute('UPDATE products SET stock_allocation_pending=true,unallocated_stock=15 WHERE id=3')
     for pid, bid, uid, kind, quantity in [(1,1,1,'SAIDA',2),(1,1,1,'ENTRADA',1),(2,2,2,'SAIDA',4)]:
         db.execute("""INSERT INTO movements(product_id,branch_id,user_id,type,quantity,unit_price,total_price,legacy,product_name,product_code,product_unit,branch_name_snapshot,actor_name)
             SELECT p.id,%s,%s,%s,%s,10,10,true,p.name,p.code,p.unit,b.name,u.name

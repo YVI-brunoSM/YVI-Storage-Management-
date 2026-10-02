@@ -1,3 +1,5 @@
+> Documento histórico. As regras de saldo e de filtros descritas abaixo foram substituídas pela migração 008. Use [ESTOQUE-POR-UNIDADE.md](ESTOQUE-POR-UNIDADE.md) para a versão atual.
+
 # Logo da empresa e filtros por unidade — 30/09/2026
 
 A imagem fornecida da YVI foi incluída no login e no canto superior esquerdo. O arquivo PNG foi copiado integralmente, preservando transparência, cores e proporções. O fundo branco foi removido: um contorno branco fino acompanha o desenho da logo, integrando-a aos temas claro e escuro.

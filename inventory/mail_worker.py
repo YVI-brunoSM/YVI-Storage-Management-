@@ -7,6 +7,7 @@ from html import escape
 from zoneinfo import ZoneInfo
 from flask import current_app
 from .db import transaction
+from .branch_access import product_scope
 from .notifications import available
 from . import mail_transport as transport
 
@@ -20,23 +21,23 @@ def render_message(row, sender):
                  'Esta mensagem é um teste. Os alertas só serão enviados após a ativação no sistema.']
     elif row['kind'] == 'summary':
         title = 'Resumo de reposição'
-        lines = ['Estoque central · posição em ' + when]
+        lines = ['Estoque Geral · posição em ' + when]
         for item in payload['items']:
-            lines.append(f"{item['code']} — {item['name']} | Saldo: {item['current_stock']} {item['unit']} | Mínimo: {item['min_stock']} {item['unit']}")
+            lines.append(f"{item.get('branch', 'Unidade não informada')} | {item['code']} — {item['name']} | Saldo: {item['current_stock']} {item['unit']} | Mínimo: {item['min_stock']} {item['unit']}")
         if not payload['items']:
             lines.append('Nenhuma peça precisa de reposição nesta consulta.')
         if payload.get('truncated'):
             lines.append('Exibindo as primeiras 1.000 peças. Consulte a lista completa no sistema.')
     else:
         title = ('Esgotado' if payload['state'] == 'out' else 'Repor') + ' — ' + payload['name']
-        lines = ['Estoque central', 'Peça: ' + payload['name'], 'Código: ' + payload['code'], 'Categoria: ' + payload['category'],
+        lines = ['Estoque Geral', 'Peça: ' + payload['name'], 'Código: ' + payload['code'], 'Categoria: ' + payload['category'],
             'Localização: ' + payload['location'], f"Saldo anterior: {payload['before']} {payload['unit']}",
             f"Saldo no alerta: {payload['stock']} {payload['unit']}", f"Estoque mínimo: {payload['minimum']} {payload['unit']}",
             'Ocorrência: ' + payload['operation'], 'Responsável: ' + payload['actor'], 'Data: ' + when]
         if payload.get('quantity'):
             lines.append(f"Quantidade movimentada: {payload['quantity']} {payload['unit']}")
         if payload.get('branch'):
-            lines.append('Unidade de destino da movimentação: ' + payload['branch'])
+            lines.append('Unidade: ' + payload['branch'])
         if payload.get('notes'):
             lines.append('Observação: ' + payload['notes'])
         lines.append('Os valores correspondem ao momento do alerta; o saldo atual pode ter mudado.')
@@ -66,14 +67,15 @@ def recipient_allowed(conn, row):
     ids = [r['branch_id'] for r in conn.execute('SELECT branch_id FROM user_branches WHERE user_id=%s', (row['user_id'],))]
     if not ids:
         return False
+    condition, params = product_scope(ids)
     if row['kind'] == 'summary':
-        codes = {r['code'] for r in conn.execute('SELECT p.code FROM products p WHERE EXISTS(SELECT 1 FROM movements m WHERE m.product_id=p.id AND m.branch_id=ANY(%s))', (ids,))}
-        row['payload'] = {**row['payload'], 'items': [p for p in row['payload']['items'] if p['code'] in codes], 'truncated': False}
+        codes = {r['code'] for r in conn.execute('SELECT p.code FROM products p WHERE '+condition, params)}
+        row['payload'] = {**row['payload'], 'items': [p for p in row['payload']['items'] if p['code'] in codes and str(p.get('branch_id')) in {str(bid) for bid in ids}], 'truncated': False}
         return True
     payload = row['payload']
-    if payload.get('branch') and payload.get('branch_id') not in ids:
+    if payload.get('branch_id') not in ids:
         return False
-    return bool(conn.execute('SELECT 1 FROM movements WHERE product_id=%s AND branch_id=ANY(%s) LIMIT 1', (row.get('product_id'), ids)).fetchone())
+    return bool(conn.execute('SELECT 1 FROM products p WHERE p.id=%s AND '+condition, (row.get('product_id'), *params)).fetchone())
 
 
 def claim():

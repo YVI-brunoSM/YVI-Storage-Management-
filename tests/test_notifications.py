@@ -14,6 +14,8 @@ REAL_GOOGLE_REQUEST = transport.google_request
 def test_restricted_manager_does_not_receive_other_unit_stock(mail, client, db, monkeypatch):
     captured=mock_sender(monkeypatch)
     db.execute("INSERT INTO branches(name) VALUES('Outra unidade')")
+    db.execute('INSERT INTO product_stocks(product_id,branch_id,quantity,min_stock,opening_quantity) VALUES(1,2,10,2,10)')
+    db.execute('UPDATE products SET current_stock=20 WHERE id=1')
     db.execute('UPDATE users SET branch_restricted=true WHERE id=3')
     db.execute('INSERT INTO user_branches(user_id,branch_id) VALUES(3,1)')
     response=client.post('/api/movements',json={'product_id':1,'branch_id':2,'type':'SAIDA','quantity':8},headers=headers())
@@ -26,8 +28,12 @@ def test_restricted_manager_does_not_receive_other_unit_stock(mail, client, db, 
 def test_summary_is_filtered_for_each_recipient(mail, client, db, monkeypatch):
     captured=mock_sender(monkeypatch)
     db.execute("INSERT INTO branches(name) VALUES('Outra unidade')")
+    db.execute('INSERT INTO product_stocks(product_id,branch_id,quantity,min_stock,opening_quantity) VALUES(1,2,10,2,10)')
+    db.execute('UPDATE products SET current_stock=20 WHERE id=1')
     db.execute("UPDATE products SET current_stock=0 WHERE id=1")
+    db.execute("UPDATE product_stocks SET quantity=0 WHERE product_id=1")
     db.execute("INSERT INTO products(code,name,category_id,unit,current_stock,min_stock) VALUES('OUTSIDE','Peça de outra unidade',1,'un',0,2)")
+    db.execute('INSERT INTO product_stocks(product_id,branch_id,min_stock) VALUES(2,2,2)')
     for pid,bid in ((1,1),(2,2)):
         db.execute("INSERT INTO movements(product_id,branch_id,user_id,type,quantity,unit_price,total_price,legacy) VALUES(%s,%s,1,'SAIDA',1,0,0,true)",(pid,bid))
     db.execute('UPDATE users SET branch_restricted=true WHERE id=3')
@@ -37,11 +43,15 @@ def test_summary_is_filtered_for_each_recipient(mail, client, db, monkeypatch):
     messages={m['To']:m.get_body(preferencelist=('plain',)).get_content() for m in captured}
     assert 'OUTSIDE' in messages['admin@example.test']
     assert 'P01' in messages['manager@example.test'] and 'OUTSIDE' not in messages['manager@example.test']
+    assert 'Outra unidade' not in messages['manager@example.test']
+    assert 'Central' in messages['manager@example.test']
 
 
 def test_unit_permission_is_rechecked_after_token_renewal(mail, client, db, monkeypatch):
     captured=mock_sender(monkeypatch)
     db.execute("INSERT INTO branches(name) VALUES('Outra unidade')")
+    db.execute('INSERT INTO product_stocks(product_id,branch_id,quantity,min_stock,opening_quantity) VALUES(1,2,10,2,10)')
+    db.execute('UPDATE products SET current_stock=20 WHERE id=1')
     assert client.post('/api/movements',json={'product_id':1,'branch_id':2,'type':'SAIDA','quantity':8},headers=headers()).status_code==201
     run_once(mail)
     def narrow_access(refresh):
@@ -148,11 +158,13 @@ def test_idempotency_and_transaction_rollback(mail, client, db, monkeypatch):
 
 
 def test_minimum_change_creation_and_reversal(mail, client, db):
-    values={'name':'Peça 1','category_id':1,'unit':'un','min_stock':12,'location':'A','purchase_price':12,'sale_price':20,'version':1}
+    values={'name':'Peça 1','category_id':1,'unit':'un','min_stock':12,'location':'A','purchase_price':12,'sale_price':20,'version':1,'unit_stocks':[{'branch_id':1,'min_stock':12}]}
     assert client.put('/api/products/1',json=values,headers=headers()).status_code==200
     new={'code':'NEW','name':'Nova','category_id':1,'unit':'un','min_stock':3,'current_stock':1,'purchase_price':0,'sale_price':0}
+    new['unit_stocks']=[{'branch_id':1,'quantity':new.get('current_stock',0),'min_stock':new.get('min_stock',0)}]
     assert client.post('/api/products',json=new,headers=headers()).status_code==201
     new.update(code='ZERO',current_stock=0)
+    new['unit_stocks']=[{'branch_id':1,'quantity':new.get('current_stock',0),'min_stock':new.get('min_stock',0)}]
     assert client.post('/api/products',json=new,headers=headers()).status_code==201
     entry=move(client,5,'ENTRADA').json
     assert client.post('/api/movements/'+str(entry['id'])+'/reverse',json={'reason':'Teste de estorno'},headers=headers()).status_code==201

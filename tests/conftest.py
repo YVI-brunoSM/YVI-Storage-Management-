@@ -42,6 +42,7 @@ def app(test_url):
         conn.execute("INSERT INTO branches(name) VALUES('Central')")
         conn.execute("INSERT INTO products(code,name,category_id,unit,current_stock,min_stock,purchase_price,sale_price) VALUES('P01','Peça 1',1,'un',10,2,12.34,20.50)")
         conn.execute('INSERT INTO product_baselines(product_id,quantity) VALUES(1,10)')
+        conn.execute('INSERT INTO product_stocks(product_id,branch_id,quantity,min_stock,opening_quantity) VALUES(1,1,10,2,10)')
     app=create_app({'DATABASE_URL':test_url,'SECRET_KEY':'test-secret-key-not-for-production-123456','TESTING':True,'APP_ENV':'development','DB_POOL_TIMEOUT':5})
     yield app
     app.extensions['db'].close()

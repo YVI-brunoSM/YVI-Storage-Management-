@@ -131,7 +131,7 @@ Não faça movimentações falsas no estoque real para testar o envio. O botão 
 - Alertas desligados: novas ocorrências não geram mensagens. Mensagens antigas pendentes aguardam reativação; envios já em andamento podem concluir.
 - Alertas ativados não geram um disparo retroativo automático. Use o resumo para as pendências existentes.
 - Destinatários são verificados novamente antes do envio; usuários desativados, com perfil removido ou e-mail alterado têm aquela mensagem cancelada.
-- Os filtros pessoais de unidade e busca não alteram disparos ou destinatários. O saldo informado é o estoque central, com a unidade de destino da movimentação quando houver.
+- Os filtros pessoais de unidade e busca não alteram disparos ou destinatários. O saldo e o mínimo informados pertencem à unidade afetada. Resumos listam a reposição por academia e respeitam o acesso do destinatário.
 - Mensagens apresentam nome, código, categoria, localização, saldos, mínimo, medida, data, operação, responsável e destino/observação quando disponíveis. Preços não são enviados.
 - Tentativas automáticas em falhas seguramente anteriores ao envio ou rejeições temporárias: até cinco. Falhas de rede durante o envio e respostas ambíguas ficam para conferência, sem repetição automática.
 - Registros encerrados são mantidos por 90 dias. Pendências, falhas e resultados incertos são preservados para revisão.

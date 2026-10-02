@@ -103,12 +103,13 @@ def test_costs_not_exposed_anywhere(app,db):
 
 def test_zero_stock_alert(client,db):
     db.execute('UPDATE products SET current_stock=0 WHERE id=1')
+    db.execute('UPDATE product_stocks SET quantity=0 WHERE product_id=1')
     assert client.get('/api/alerts').json['total']==1
 
 
 def test_optimistic_version_conflict(client):
     p=client.get('/api/products/1').json
-    data={**p,'name':'Novo nome'}
+    data={**p,'name':'Novo nome','unit_stocks':[{'branch_id':1,'min_stock':2}]}
     assert client.put('/api/products/1',json=data,headers=headers()).status_code==200
     assert client.put('/api/products/1',json=data,headers=headers()).status_code==409
 
@@ -124,7 +125,7 @@ def test_reversal_is_unique_and_immutable(client,db):
 
 
 def test_initial_stock_is_audited(client,db):
-    data={'code':'P02','name':'Nova','category_id':1,'unit':'m','current_stock':'1.250','min_stock':'0.500','purchase_price':'12.34','sale_price':'20.50','location':''}
+    data={'code':'P02','name':'Nova','category_id':1,'unit':'m','current_stock':'1.250','min_stock':'0.500','purchase_price':'12.34','sale_price':'20.50','location':'','unit_stocks':[{'branch_id':1,'quantity':'1.250','min_stock':'0.500'}]}
     res=client.post('/api/products',json=data,headers=headers())
     assert res.status_code==201,res.json
     row=db.execute('SELECT * FROM movements WHERE product_id=%s',(res.json['id'],)).fetchone()

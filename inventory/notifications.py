@@ -222,7 +222,7 @@ def summary():
         raise ApiError('EMAIL_PAUSED', 'Ative os alertas antes de enviar o resumo.', 409)
     if g.conn.execute("SELECT 1 FROM email_events WHERE kind='summary' AND created_at>now()-interval '1 hour'").fetchone():
         raise ApiError('SUMMARY_LIMIT', 'Um resumo já foi solicitado na última hora.', 429)
-    rows = g.conn.execute('SELECT code,name,unit,current_stock,min_stock FROM products WHERE active=1 AND current_stock<=min_stock ORDER BY code LIMIT 1001').fetchall()
+    rows = g.conn.execute('SELECT p.code,p.name,p.unit,s.quantity AS current_stock,s.min_stock,s.branch_id,b.name AS branch FROM products p JOIN product_stocks s ON s.product_id=p.id JOIN branches b ON b.id=s.branch_id WHERE p.active=1 AND s.enabled AND NOT p.stock_allocation_pending AND s.quantity<=s.min_stock ORDER BY p.code,b.name LIMIT 1001').fetchall()
     payload = {'at': stamp(), 'items': [{k: str(v) for k,v in row.items()} for row in rows[:1000]], 'truncated': len(rows)>1000}
     count = queue_event(g.conn, 'summary:' + secrets.token_hex(16), 'summary', payload)
     return jsonify({'message': f'Resumo colocado na fila para {count} destinatário(s).'}), 202

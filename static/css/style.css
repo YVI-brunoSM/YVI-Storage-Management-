@@ -80,3 +80,7 @@
 .privacy-page section{margin-top:2rem}
 .privacy-page p+p{margin-top:1rem}
 .privacy-page h2{font-size:1.5rem;margin-bottom:.75rem}
+
+.unit-stock-row{display:grid;grid-template-columns:minmax(140px,1fr) minmax(100px,.65fr) minmax(100px,.65fr);gap:12px;align-items:center;padding:12px 0}.unit-stock-row input[type=number]{width:100%}@media(max-width:600px){.unit-stock-row{grid-template-columns:1fr 1fr}.unit-stock-row>.unit-access-option{grid-column:1/-1}}
+
+.product-unit-access{grid-template-columns:minmax(0,1fr)}

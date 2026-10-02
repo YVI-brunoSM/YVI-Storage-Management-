@@ -32,7 +32,7 @@ export function iconPicker(ctx,value) {
   ctx.grid.append(group);
 }
 
-export function pieceCombobox(ctx,selected,onChange) {
+export function pieceCombobox(ctx,selected,onChange,getBranch=()=>null) {
   const wrap=document.createElement('div');wrap.className='piece-combobox full';
   const label=document.createElement('label');label.htmlFor='piece-search';label.textContent='Peça';
   const input=document.createElement('input');input.id='piece-search';input.placeholder='Digite o nome ou código da peça';input.autocomplete='off';input.required=true;input.maxLength=200;
@@ -49,7 +49,7 @@ export function pieceCombobox(ctx,selected,onChange) {
     controller?.abort();controller=new AbortController();const current=++revision;
     rows=[];active=-1;list.replaceChildren();input.removeAttribute('aria-activedescendant');status.textContent='Buscando peças…';
     try {
-      const data=await api('/api/products/lookup?search='+encodeURIComponent(hidden.value?'':input.value),{signal:controller.signal});
+      const data=await api('/api/products/lookup?search='+encodeURIComponent(hidden.value?'':input.value)+(getBranch()?'&branch_id='+encodeURIComponent(getBranch()):''),{signal:controller.signal});
       if(!alive||current!==revision)return;rows=data.items;
       rows.forEach((row,i)=>{const option=document.createElement('div');option.role='option';option.id='piece-option-'+row.id;option.setAttribute('aria-selected','false');option.textContent=row.name+' · '+row.code+' — '+row.current_stock+' '+row.unit;option.addEventListener('pointerdown',e=>e.preventDefault());option.addEventListener('click',()=>{if(!input.disabled)choose(row);});list.append(option);});
       status.textContent=rows.length?'Selecione uma peça. Use ↑ e ↓ para navegar.':'Nenhuma peça encontrada. Tente outro nome ou código.';open(document.activeElement===input&&rows.length>0);

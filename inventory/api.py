@@ -9,7 +9,7 @@ import re
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from decimal import Decimal, ROUND_HALF_UP
-from uuid import UUID
+from uuid import UUID, uuid4
 from flask import Blueprint, g, jsonify, request, session, current_app, Response
 from psycopg import sql
 from psycopg.types.json import Jsonb
@@ -17,7 +17,9 @@ from werkzeug.security import check_password_hash, generate_password_hash
 from .db import transaction
 from .validation import ApiError, body, text, integer, number, choice, boolean, password, quantity_for_unit, page, invalid
 from .security import require, csrf_token, identity, permitted, expect_version, PERMISSIONS, ROLES
-from .branch_access import allowed_ids, check_branch, check_product, shared_catalog, scope_ids, save_access
+from .branch_access import allowed_ids, check_branch, check_product, shared_catalog, scope_ids, save_access, product_scope
+
+from .unit_stock import selections, save_links, lock_stock
 
 api = Blueprint('api', __name__, url_prefix='/api')
 UNITS = ('un','m','par','cx','kg')
@@ -38,6 +40,8 @@ def product_public(row):
     if not g.user['permissions']['costs_view']:
         result.pop('purchase_price', None)
         result.pop('sale_price', None)
+    if g.user['role'] != 'ADMIN':
+        result.pop('unallocated_stock', None)
     return result
 
 
@@ -101,7 +105,7 @@ def me():
 
 
 def selected_branch():
-    """Filter by recorded destination, never reinterpret the central stock balance."""
+    """Filter products by assigned unit; movement history keeps its recorded destination."""
     if hasattr(g, 'selected_branch'):
         return g.selected_branch
     raw = request.args.get('branch_id', '')
@@ -121,10 +125,17 @@ def selected_branch():
     return g.selected_branch
 
 
+def read_products(query, params=()):
+    branch = selected_branch()
+    ids = scope_ids(branch) if branch else None
+    return g.conn.execute(query.replace('products p', 'inventory_products(%s::integer[]) p'), (ids, *params))
+
+
 def product_branch_condition(branch):
     if not branch:
         return '', []
-    return ' AND EXISTS(SELECT 1 FROM movements scope WHERE scope.product_id=p.id AND scope.branch_id=ANY(%s))', [scope_ids(branch)]
+    condition, params = product_scope(scope_ids(branch))
+    return ' AND '+condition, params
 
 
 @api.get('/dashboard/stats')
@@ -133,10 +144,10 @@ def dashboard():
     branch = selected_branch()
     product_scope, product_params = product_branch_condition(branch)
     movement_scope, movement_params = (' AND m.branch_id=ANY(%s)', [scope_ids(branch)]) if branch else ('', [])
-    stats = g.conn.execute("SELECT count(*) AS total_skus,count(*) FILTER(WHERE p.current_stock<=p.min_stock) AS low_stock_count,count(*) FILTER(WHERE p.current_stock=0) AS out_count,sum(p.current_stock*p.purchase_price) AS purchase_valuation,sum(p.current_stock*p.sale_price) AS sale_valuation FROM products p WHERE p.active=1"+product_scope, product_params).fetchone()
+    stats = read_products("SELECT count(*) AS total_skus,count(*) FILTER(WHERE p.stock_allocation_pending) AS pending_count,count(*) FILTER(WHERE p.low_unit_count>0 AND NOT p.stock_allocation_pending) AS low_stock_count,count(*) FILTER(WHERE p.current_stock=0 AND NOT p.stock_allocation_pending) AS out_count,sum(p.current_stock*p.purchase_price) AS purchase_valuation,sum(p.current_stock*p.sale_price) AS sale_valuation FROM products p WHERE p.active=1"+product_scope, product_params).fetchone()
     if not g.user['permissions']['costs_view']:
         stats.pop('purchase_valuation'); stats.pop('sale_valuation')
-    stats['stock_by_unit'] = g.conn.execute('SELECT p.unit,sum(p.current_stock) AS quantity FROM products p WHERE p.active=1'+product_scope+' GROUP BY p.unit ORDER BY p.unit', product_params).fetchall()
+    stats['stock_by_unit'] = read_products('SELECT p.unit,sum(p.current_stock) AS quantity FROM products p WHERE p.active=1'+product_scope+' GROUP BY p.unit ORDER BY p.unit', product_params).fetchall()
     stats['branches'] = len(scope_ids(branch)) if branch else g.conn.execute('SELECT count(*) AS n FROM branches').fetchone()['n']
     stats['selected_branch'] = branch
     today = datetime.now(ZoneInfo('America/Sao_Paulo')).replace(hour=0, minute=0, second=0, microsecond=0)
@@ -158,8 +169,9 @@ def product_query(alerts=False):
     conditions, params = ['p.active=1'], []
     branch = selected_branch()
     if branch:
-        conditions.append('EXISTS(SELECT 1 FROM movements scope WHERE scope.product_id=p.id AND scope.branch_id=ANY(%s))')
-        params.append(scope_ids(branch))
+        condition, scope_params = product_scope(scope_ids(branch))
+        conditions.append(condition)
+        params.extend(scope_params)
     search = text(request.args, 'search', maximum=100)
     if search:
         conditions.append('(p.name ILIKE %s OR p.code ILIKE %s OR p.location ILIKE %s)')
@@ -168,19 +180,19 @@ def product_query(alerts=False):
         conditions.append('p.category_id=%s'); params.append(integer(request.args['category_id'],'category_id'))
     status = choice(request.args, 'status', ('','low','out','ok'), '')
     if alerts or status == 'low':
-        conditions.append('p.current_stock<=p.min_stock')
+        conditions.append('p.low_unit_count>0 AND NOT p.stock_allocation_pending')
     elif status == 'out':
-        conditions.append('p.current_stock=0')
+        conditions.append('p.current_stock=0 AND NOT p.stock_allocation_pending')
     elif status == 'ok':
-        conditions.append('p.current_stock>p.min_stock')
+        conditions.append('p.low_unit_count=0 AND NOT p.stock_allocation_pending')
     return ' AND '.join(conditions), params
 
 
 def list_products(alerts=False):
     page_no, limit = page()
     where, params = product_query(alerts)
-    total = g.conn.execute('SELECT count(*) AS n FROM products p WHERE ' + where, params).fetchone()['n']
-    rows = g.conn.execute('SELECT p.*,c.name AS category_name FROM products p JOIN categories c ON c.id=p.category_id WHERE '+where+' ORDER BY p.code,p.id LIMIT %s OFFSET %s', (*params,limit,(page_no-1)*limit)).fetchall()
+    total = read_products('SELECT count(*) AS n FROM products p WHERE ' + where, params).fetchone()['n']
+    rows = read_products('SELECT p.*,c.name AS category_name FROM products p JOIN categories c ON c.id=p.category_id WHERE '+where+' ORDER BY p.code,p.id LIMIT %s OFFSET %s', (*params,limit,(page_no-1)*limit)).fetchall()
     return jsonify({'items':[product_public(p) for p in rows], 'total':total, 'page':page_no, 'limit':limit})
 
 
@@ -202,7 +214,7 @@ def products_lookup():
     if not any(g.user['permissions'][p] for p in ('products_view','movements_in','movements_out')):
         permitted('products_view')
     where, params = product_query()
-    rows = g.conn.execute('SELECT p.id,p.code,p.name,p.unit,p.current_stock FROM products p WHERE '+where+' ORDER BY p.code,p.id LIMIT 50',params).fetchall()
+    rows = read_products('SELECT p.id,p.code,p.name,p.unit,p.current_stock,p.unit_stocks,p.stock_allocation_pending FROM products p WHERE '+where+' ORDER BY p.code,p.id LIMIT 50',params).fetchall()
     return jsonify({'items': rows})
 
 
@@ -210,7 +222,7 @@ def products_lookup():
 @require('products_view')
 def product_detail(pid):
     check_product(pid)
-    row = g.conn.execute('SELECT p.*,c.name AS category_name FROM products p JOIN categories c ON c.id=p.category_id WHERE p.id=%s', (pid,)).fetchone()
+    row = read_products('SELECT p.*,c.name AS category_name FROM products p JOIN categories c ON c.id=p.category_id WHERE p.id=%s', (pid,)).fetchone()
     if not row:
         raise ApiError('NOT_FOUND','Peça não encontrada.',404)
     return jsonify(product_public(row))
@@ -265,30 +277,33 @@ def operation_status(key):
     return jsonify({'found':bool(row and row['result']), 'result':row['result'] if row else None})
 
 
-def write_movement(product, mov_type, qty, branch_id, destination, notes, reversal_of=None, notify=True):
+def write_movement(product, mov_type, qty, branch_id, destination, notes, reversal_of=None, notify=True, transfer_id=None):
     check_branch(branch_id)
-    quantity_for_unit(qty,product['unit'])
-    delta = qty if mov_type=='ENTRADA' else -qty
-    new_stock = product['current_stock'] + delta
+    quantity_for_unit(qty, product['unit'])
+    stock = lock_stock(product, branch_id)
+    delta = qty if mov_type == 'ENTRADA' else -qty
+    new_stock = stock['quantity'] + delta
     if new_stock < 0:
-        raise ApiError('STOCK_CONFLICT',f'O saldo mudou ou é insuficiente. Disponível: {product["current_stock"]} {product["unit"]}. Revise a quantidade.',409)
-    price = product['purchase_price'] if mov_type=='ENTRADA' else product['sale_price']
-    branch = g.conn.execute('SELECT name FROM branches WHERE id=%s', (branch_id,)).fetchone() if branch_id else None
-    if branch_id and not branch:
-        invalid('branch_id','Unidade não encontrada.')
+        raise ApiError('STOCK_CONFLICT', f'Saldo insuficiente nesta unidade. Disponível: {stock["quantity"]} {product["unit"]}.', 409)
+    if product['current_stock'] + delta >= Decimal('100000000000') or new_stock >= Decimal('100000000000'):
+        invalid('quantity', 'O saldo excede o limite permitido.')
+    price = product['purchase_price'] if mov_type == 'ENTRADA' else product['sale_price']
+    branch = g.conn.execute('SELECT name FROM branches WHERE id=%s', (branch_id,)).fetchone()
     total = (price*qty).quantize(Decimal('.01'), rounding=ROUND_HALF_UP)
     if total >= Decimal('1000000000000000'):
-        invalid('quantity','Valor total da operação excede o limite.')
-    row = g.conn.execute('INSERT INTO movements(product_id,type,quantity,unit_price,total_price,branch_id,destination_equipment,notes,user_id,product_code,product_name,product_unit,actor_name,branch_name_snapshot,stock_after,reversal_of) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
-        (product['id'],mov_type,qty,price,total,branch_id,destination,notes,g.user['id'],product['code'],product['name'],product['unit'],g.user['name'],branch['name'] if branch else None,new_stock,reversal_of)).fetchone()
-    g.conn.execute('UPDATE products SET current_stock=%s,version=version+1 WHERE id=%s', (new_stock,product['id']))
+        invalid('quantity', 'Valor total da operação excede o limite.')
+    row = g.conn.execute('INSERT INTO movements(product_id,type,quantity,unit_price,total_price,branch_id,destination_equipment,notes,user_id,product_code,product_name,product_unit,actor_name,branch_name_snapshot,stock_after,reversal_of,transfer_id) VALUES(%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s) RETURNING id',
+        (product['id'],mov_type,qty,price,total,branch_id,destination,notes,g.user['id'],product['code'],product['name'],product['unit'],g.user['name'],branch['name'],new_stock,reversal_of,transfer_id)).fetchone()
+    g.conn.execute('UPDATE product_stocks SET quantity=%s,version=version+1 WHERE product_id=%s AND branch_id=%s', (new_stock,product['id'],branch_id))
+    g.conn.execute('UPDATE products SET current_stock=current_stock+%s,version=version+1 WHERE id=%s', (delta,product['id']))
+    product['current_stock'] += delta
     if notify:
         from .notifications import stock_event
-        stock_event(g.conn, product, {**product, 'current_stock': new_stock},
-            {'operation': ('Estorno · ' if reversal_of else '') + ('Entrada' if mov_type == 'ENTRADA' else 'Saída'),
-             'actor': g.user['name'], 'quantity': str(qty), 'branch': branch['name'] if branch else None, 'branch_id': branch_id, 'notes': notes},
-            'movement:' + str(row['id']))
-    return {'id':row['id'],'new_stock':new_stock,'message':'Movimentação registrada.'}
+        previous = {**product, 'current_stock': stock['quantity'], 'min_stock': stock['min_stock'], 'location': branch['name']}
+        stock_event(g.conn, previous, {**previous, 'current_stock': new_stock},
+            {'operation': ('Transferência · ' if transfer_id else 'Estorno · ' if reversal_of else '') + ('Entrada' if mov_type=='ENTRADA' else 'Saída'),
+             'actor':g.user['name'],'quantity':str(qty),'branch':branch['name'],'branch_id':branch_id,'notes':notes}, 'movement:'+str(row['id']))
+    return {'id':row['id'],'new_stock':new_stock,'branch_id':branch_id,'message':'Movimentação registrada.'}
 
 
 @api.post('/products')
@@ -297,19 +312,23 @@ def create_product():
     shared_catalog()
     data = body()
     fields = product_fields(data)
-    initial = number(data,'current_stock',default=0)
-    quantity_for_unit(initial, fields['unit'], 'current_stock')
-    if initial:
+    units = selections(data, fields)
+    if any(row['quantity'] for row in units):
         permitted('movements_in')
     def create():
         p = g.conn.execute('INSERT INTO products(code,name,category_id,unit,min_stock,purchase_price,sale_price,location) VALUES(%s,%s,%s,%s,%s,%s,%s,%s) RETURNING *', tuple(fields[k] for k in ('code','name','category_id','unit','min_stock','purchase_price','sale_price','location'))).fetchone()
         g.conn.execute('INSERT INTO product_baselines(product_id,quantity) VALUES(%s,0)', (p['id'],))
-        if initial:
-            write_movement(p,'ENTRADA',initial,None,'Abertura','Saldo inicial registrado no cadastro.',notify=False)
+        save_links(p, units)
         from .notifications import stock_event
-        stock_event(g.conn, p, {**p, 'current_stock': initial}, {'operation': 'Cadastro de peça', 'actor': g.user['name']}, 'product-created:' + str(p['id']), initial=True)
-        audit('product_created',p['id'])
-        return {'id':p['id'],'message':'Peça cadastrada.'}
+        for row in units:
+            bid = row['branch_id']
+            if row['quantity']:
+                write_movement(p,'ENTRADA',row['quantity'],bid,'Abertura','Saldo inicial registrado no cadastro.',notify=False)
+            branch = g.conn.execute('SELECT name FROM branches WHERE id=%s',(bid,)).fetchone()
+            local = {**p,'current_stock':row['quantity'],'min_stock':row['min_stock'],'location':branch['name']}
+            stock_event(g.conn,local,local,{'branch_id':bid,'branch':branch['name'],'operation':'Cadastro de peça','actor':g.user['name']},f'product-created:{p["id"]}:{bid}',initial=True)
+        audit('product_created',p['id'],{'branch_ids':[r['branch_id'] for r in units]})
+        return {'id':p['id'],'message':'Peça cadastrada nas unidades selecionadas.'}
     return operation(data,'product:create',create)
 
 
@@ -321,9 +340,9 @@ def update_product(pid):
     old=g.conn.execute('SELECT * FROM products WHERE id=%s AND active=1 FOR UPDATE',(pid,)).fetchone()
     expect_version(old,data)
     values=product_fields(data,old)
-    g.conn.execute('UPDATE products SET name=%s,category_id=%s,min_stock=%s,location=%s,purchase_price=%s,sale_price=%s,version=version+1 WHERE id=%s',(*(values[k] for k in ('name','category_id','min_stock','location','purchase_price','sale_price')),pid))
-    from .notifications import stock_event
-    stock_event(g.conn, old, {**old, **values}, {'operation': 'Alteração do estoque mínimo', 'actor': g.user['name']}, f'product-updated:{pid}:{old["version"]+1}')
+    units = selections(data, values, old=True)
+    save_links({**old, **values}, units, notify_new=True)
+    g.conn.execute('UPDATE products SET name=%s,category_id=%s,min_stock=%s,location=%s,purchase_price=%s,sale_price=%s,version=version+1,branch_id=NULL WHERE id=%s',(*(values[k] for k in ('name','category_id','min_stock','location','purchase_price','sale_price')),pid))
     audit('product_updated',pid,{'version_before':old['version']})
     return jsonify({'message':'Peça atualizada.'})
 
@@ -339,6 +358,65 @@ def archive_product(pid):
     g.conn.execute('UPDATE products SET active=0,version=version+1 WHERE id=%s',(pid,))
     audit('product_archived',pid)
     return jsonify({'message':'Peça arquivada. Histórico preservado.'})
+
+
+@api.post('/products/<int:pid>/allocate')
+@require(admin=True)
+def allocate_stock(pid):
+    data = body()
+    reason = text(data, 'reason', True, 1000)
+    def allocate():
+        product = g.conn.execute('SELECT * FROM products WHERE id=%s AND active=1 FOR UPDATE', (pid,)).fetchone()
+        expect_version(product, data)
+        if not product['stock_allocation_pending']:
+            raise ApiError('ALREADY_ALLOCATED', 'A distribuição inicial desta peça já foi concluída.', 409)
+        units = selections(data, product)
+        total = sum((r['quantity'] for r in units), Decimal(0))
+        if total != product['unallocated_stock']:
+            invalid('unit_stocks', f'Distribua exatamente {product["unallocated_stock"]} {product["unit"]}. O saldo anterior será preservado.')
+        save_links(product, units)
+        from .notifications import stock_event
+        for row in units:
+            bid = row['branch_id']
+            g.conn.execute('UPDATE product_stocks SET quantity=%s,opening_quantity=%s,min_stock=%s,version=version+1 WHERE product_id=%s AND branch_id=%s', (row['quantity'], row['quantity'], row['min_stock'], pid, bid))
+            name = g.conn.execute('SELECT name FROM branches WHERE id=%s', (bid,)).fetchone()['name']
+            local = {**product, 'current_stock': row['quantity'], 'min_stock': row['min_stock'], 'location': name}
+            stock_event(g.conn, local, local, {'branch_id':bid,'branch':name,'actor':g.user['name'],'operation':'Conferência inicial por unidade','notes':reason}, f'allocation:{pid}:{bid}', initial=True)
+        g.conn.execute('UPDATE products SET stock_allocation_pending=false,unallocated_stock=0,current_stock=%s,version=version+1,branch_id=NULL WHERE id=%s', (total,pid))
+        audit('stock_allocated', pid, {'reason':reason,'previous_total':str(product['unallocated_stock']),'units':[{k:str(v) for k,v in r.items()} for r in units]})
+        return {'message':'Saldo distribuído. Movimentações por unidade liberadas.'}
+    return operation(data, 'stock:allocate:'+str(pid), allocate)
+
+
+@api.post('/transfers')
+@require()
+def transfer_stock():
+    data = body()
+    permitted('movements_in')
+    permitted('movements_out')
+    pid = integer(data.get('product_id'), 'product_id')
+    source = integer(data.get('source_id'), 'source_id')
+    destination = integer(data.get('destination_id'), 'destination_id')
+    check_branch(source)
+    check_branch(destination)
+    check_product(pid)
+    if source == destination:
+        invalid('destination_id', 'Selecione uma unidade diferente da origem.')
+    qty = number(data, 'quantity', minimum=Decimal('.001'))
+    notes = text(data, 'notes', True, 1000)
+    def transfer():
+        product = g.conn.execute('SELECT * FROM products WHERE id=%s AND active=1 FOR UPDATE', (pid,)).fetchone()
+        if not product:
+            raise ApiError('NOT_FOUND', 'Peça não encontrada.', 404)
+        for bid in sorted([source,destination]):
+            lock_stock(product,bid)
+        tid = uuid4()
+        g.conn.execute('INSERT INTO stock_transfers(id,product_id,source_id,destination_id,quantity,user_id,notes) VALUES(%s,%s,%s,%s,%s,%s,%s)', (tid,pid,source,destination,qty,g.user['id'],notes))
+        outgoing = write_movement(product,'SAIDA',qty,source,'Transferência',notes,transfer_id=tid)
+        incoming = write_movement(product,'ENTRADA',qty,destination,'Transferência',notes,transfer_id=tid)
+        audit('stock_transferred',pid,{'transfer_id':str(tid),'source_id':source,'destination_id':destination,'quantity':str(qty)})
+        return {'message':'Transferência concluída. O saldo geral foi preservado.','transfer_id':str(tid),'source_stock':outgoing['new_stock'],'destination_stock':incoming['new_stock']}
+    return operation(data,'stock:transfer',transfer)
 
 
 @api.post('/movements')
@@ -371,8 +449,8 @@ def reverse_movement(mid):
         mov=g.conn.execute('SELECT * FROM movements WHERE id=%s',(mid,)).fetchone()
         if not mov:
             raise ApiError('NOT_FOUND','Movimentação não encontrada.',404)
-        if mov['legacy'] or mov['reversal_of']:
-            raise ApiError('REVERSAL_NOT_ALLOWED','Registro legado ou estorno não pode ser estornado automaticamente. Registre um ajuste justificado.',409)
+        if mov['legacy'] or mov['reversal_of'] or mov['stock_model'] != 2 or mov['transfer_id']:
+            raise ApiError('REVERSAL_NOT_ALLOWED','Histórico anterior, transferência ou estorno exige uma operação compensatória justificada na unidade.',409)
         p=g.conn.execute('SELECT * FROM products WHERE id=%s FOR UPDATE',(mov['product_id'],)).fetchone()
         if not p or not p['active']:
             raise ApiError('ARCHIVED_PRODUCT','Peça arquivada; ajuste exige revisão do cadastro.',409)
@@ -434,7 +512,7 @@ def categories():
     branch = selected_branch()
     scope, params = product_branch_condition(branch)
     having = ' HAVING count(p.id)>0' if branch else ''
-    return jsonify(g.conn.execute('SELECT c.*,count(p.id) AS product_count FROM categories c LEFT JOIN products p ON p.category_id=c.id AND p.active=1'+scope+' GROUP BY c.id'+having+' ORDER BY c.name', params).fetchall())
+    return jsonify(read_products('SELECT c.*,count(p.id) AS product_count FROM categories c LEFT JOIN products p ON p.category_id=c.id AND p.active=1'+scope+' GROUP BY c.id'+having+' ORDER BY c.name', params).fetchall())
 
 
 @api.get('/branches')
@@ -631,14 +709,19 @@ def export():
     costs=g.user['permissions']['costs_view']
     if target=='products':
         where,params=product_query()
-        rows=g.conn.execute('SELECT p.code,p.name,c.name AS category,p.unit,p.current_stock,p.min_stock,p.location,p.purchase_price,p.sale_price FROM products p JOIN categories c ON c.id=p.category_id WHERE '+where+' ORDER BY p.code LIMIT 10001',params).fetchall()
-        columns=['code','name','category','unit','current_stock','min_stock','location']+(['purchase_price','sale_price'] if costs else [])
-        headers=['SKU','Peça','Categoria','Unidade','Saldo central','Mínimo','Localização']+(['Custo','Repasse'] if costs else [])
+        rows=read_products('SELECT p.code,p.name,c.name AS category,p.unit,p.current_stock,p.min_stock,p.location,p.purchase_price,p.sale_price,p.unit_stocks,p.stock_allocation_pending FROM products p JOIN categories c ON c.id=p.category_id WHERE '+where+' ORDER BY p.code LIMIT 10001',params).fetchall()
+        for row in rows:
+            row['distribution']=' | '.join(s['branch_name']+': '+('A conferir' if row['stock_allocation_pending'] else str(s['quantity'])+' '+row['unit']) for s in row['unit_stocks'])
+            row['stock_status']='A conferir' if row['stock_allocation_pending'] else 'Conferido'
+            if row['stock_allocation_pending']:
+                row['current_stock']=''
+        columns=['code','name','category','unit','current_stock','min_stock','location','distribution','stock_status']+(['purchase_price','sale_price'] if costs else [])
+        headers=['SKU','Peça','Categoria','Unidade','Saldo geral','Mínimo','Unidades','Distribuição por unidade','Conferência']+(['Custo','Repasse'] if costs else [])
     else:
         where,params=movement_query()
         rows=[movement_public(row) for row in g.conn.execute('SELECT m.* FROM movements m WHERE '+where+' ORDER BY timestamp DESC,id DESC LIMIT 10001',params).fetchall()]
-        columns=['timestamp','type','product_code','product_name','quantity','product_unit','branch_name_snapshot','destination_equipment','actor_name','notes','reversal_of','legacy']+(['unit_price','total_price'] if costs else [])
-        headers=['Data UTC','Tipo','SKU','Peça','Quantidade','Medida','Unidade destino','Equipamento','Responsável','Observação','Estorno de','Legado']+(['Preço unitário','Total'] if costs else [])
+        columns=['timestamp','type','product_code','product_name','quantity','product_unit','branch_name_snapshot','destination_equipment','actor_name','notes','reversal_of','legacy','stock_model','transfer_id']+(['unit_price','total_price'] if costs else [])
+        headers=['Data UTC','Tipo','SKU','Peça','Quantidade','Medida','Unidade destino','Equipamento','Responsável','Observação','Estorno de','Legado','Modelo do saldo (1=anterior, 2=por unidade)','Transferência']+(['Preço unitário','Total'] if costs else [])
     if len(rows)>10000:
         raise ApiError('EXPORT_LIMIT','A exportação excede 10.000 linhas. Restrinja os filtros ou o período.',422)
     output=io.StringIO(newline='');output.write('\ufeff')

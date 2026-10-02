@@ -31,6 +31,9 @@ Prefira um papel proprietário usado apenas por `MIGRATION_DATABASE_URL` e um pa
 | operation_keys | SELECT, INSERT, UPDATE |
 | login_limits | SELECT, INSERT, UPDATE, DELETE |
 | schema_migrations | SELECT |
+| product_stocks | SELECT, INSERT, UPDATE |
+| stock_transfers | SELECT, INSERT |
+| user_branches | SELECT, INSERT, DELETE |
 
 O papel da aplicação não deve ser proprietário, superusuário, criar tabelas nem desativar triggers. `manage.py create-admin` e `reconcile` funcionam com os privilégios acima. Ajuste grants explicitamente para o nome do papel escolhido; não distribua credenciais administrativas no serviço web.
 
@@ -57,3 +60,7 @@ Configure backups automáticos compatíveis com o plano contratado e uma cópia 
 - O histórico é protegido contra edição pela aplicação e por triggers. Um administrador do banco ainda pode alterar ou remover esses mecanismos; controles de acesso e backups continuam necessários.
 - Exportação limitada a 10.000 linhas por solicitação; reduza o período ou filtro quando ultrapassar. Exportações maiores exigem processamento em segundo plano.
 - Falha de rede mantém o formulário aberto, mas fechar a aba ou encerrar a sessão pode perder o rascunho. Confira o histórico antes de iniciar outra operação nessas situações.
+
+## Atualização para estoque por unidade
+
+Consulte [ESTOQUE-POR-UNIDADE.md](ESTOQUE-POR-UNIDADE.md). A aplicação precisa de EXECUTE na função `inventory_products(integer[])`, além das permissões de tabela acima. A migração 008 preserva os saldos anteriores como pendentes de distribuição. `manage.py reconcile` valida a soma das unidades e seus lançamentos; confira também o contador de distribuições pendentes antes de liberar todas as operações.

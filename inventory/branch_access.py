@@ -13,15 +13,21 @@ def check_branch(bid):
         raise ApiError('BRANCH_FORBIDDEN', 'Você não tem acesso a esta unidade.', 403)
 
 
+def product_scope(ids):
+    return 'EXISTS(SELECT 1 FROM product_stocks scope WHERE scope.product_id=p.id AND scope.enabled AND scope.branch_id=ANY(%s))', [ids]
+
+
 def check_product(pid):
     ids = allowed_ids()
-    if ids is not None and not g.conn.execute('SELECT 1 FROM movements WHERE product_id=%s AND branch_id=ANY(%s) LIMIT 1', (pid, ids)).fetchone():
-        raise ApiError('PRODUCT_FORBIDDEN', 'Esta peça não está vinculada às suas unidades autorizadas.', 403)
+    if ids is not None:
+        condition, params = product_scope(ids)
+        if not g.conn.execute('SELECT 1 FROM products p WHERE p.id=%s AND '+condition, (pid, *params)).fetchone():
+            raise ApiError('PRODUCT_FORBIDDEN', 'Esta peça não está vinculada às suas unidades autorizadas.', 403)
 
 
 def shared_catalog():
     if allowed_ids() is not None:
-        raise ApiError('SHARED_CATALOG', 'O cadastro central é compartilhado. Solicite esta alteração a um administrador.', 403)
+        raise ApiError('SHARED_CATALOG', 'O cadastro é compartilhado entre as unidades. Solicite esta alteração a um administrador.', 403)
 
 
 def scope_ids(branch):

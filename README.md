@@ -92,4 +92,8 @@ Licenças das fontes e do cliente Socket.IO estão em `static/fonts/` e `static/
 
 ## Administração e unidades autorizadas
 
-Os recursos administrativos ficam nas páginas Usuários e acessos, Notificações, Categorias e Unidades da rede. Usuários podem ter acesso geral ou a uma lista de unidades. Publique com `python migrate.py` para aplicar `006_user_branch_access` antes de iniciar esta versão. As contas existentes preservam o acesso geral até serem revisadas. Veja [o guia de configuração de unidades](ACESSO-UNIDADES.md).
+Os recursos administrativos ficam nas páginas Usuários e acessos, Notificações, Categorias e Unidades da rede. Usuários podem ter acesso geral ou a uma lista de unidades. Publique com `python migrate.py` para aplicar `008_unit_stock` antes de iniciar esta versão. As contas existentes preservam o acesso geral até serem revisadas. Veja [o guia de configuração de unidades](ACESSO-UNIDADES.md).
+
+## Estoque Geral por unidade
+
+Cada peça pode ser vinculada a várias academias, com saldo e mínimo próprios. A tabela soma apenas as unidades autorizadas e detalha sua distribuição. Veja [as instruções de uso e atualização](ESTOQUE-POR-UNIDADE.md). Após a migração 008, saldos anteriores positivos precisam ser distribuídos por um administrador antes de movimentar.

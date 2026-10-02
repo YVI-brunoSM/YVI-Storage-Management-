@@ -54,7 +54,8 @@ def test_legacy_migration_preserves_balances_and_orphan_id(test_url):
             conn.execute((Path(__file__).parents[1]/'migrations/001_base.sql').read_text())
             conn.execute("INSERT INTO categories(name) VALUES('Legado')")
             conn.execute("INSERT INTO users(username,name,password_hash,role) VALUES('old','Pessoa','hash','ADMIN')")
-            conn.execute("INSERT INTO products(code,name,category_id,current_stock) VALUES('OLD','Legada',1,12)")
+            conn.execute("INSERT INTO branches(name) VALUES('Unidade antiga')")
+            conn.execute("INSERT INTO products(code,name,category_id,current_stock,location) VALUES('OLD','Legada',1,12,' Unidade antiga ')")
             conn.execute('ALTER TABLE movements DROP CONSTRAINT movements_product_id_fkey')
             conn.execute("INSERT INTO deleted_products(id,name,code) VALUES(99,'Arquivada','DEL')")
             conn.execute("INSERT INTO movements(product_id,type,quantity,unit_price,total_price,user_id,timestamp) VALUES(99,'SAIDA',1,2,2,1,'2024-01-15 12:00:00')")
@@ -64,9 +65,12 @@ def test_legacy_migration_preserves_balances_and_orphan_id(test_url):
         migrate(url) # checksum and rerun must be harmless
         with psycopg.connect(url) as conn:
             assert conn.execute('SELECT quantity FROM product_baselines').fetchone()[0]==12
+            assert conn.execute('SELECT branch_id FROM products').fetchone()[0]==1
+            assert conn.execute('SELECT stock_allocation_pending,unallocated_stock,current_stock FROM products').fetchone()==(True,12,12)
+            assert conn.execute('SELECT branch_id,quantity FROM product_stocks').fetchone()==(1,0)
             m=conn.execute('SELECT legacy,legacy_product_id,product_id,product_name,extract(hour from timestamp AT TIME ZONE \'UTC\') FROM movements').fetchone()
             assert m==(True,99,None,'Arquivada',15)
-            assert conn.execute('SELECT count(*) FROM schema_migrations').fetchone()[0]==6
+            assert conn.execute('SELECT count(*) FROM schema_migrations').fetchone()[0]==8
     finally:
         with psycopg.connect(test_url,autocommit=True) as conn:
             conn.execute(sql.SQL('DROP DATABASE {} WITH (FORCE)').format(sql.Identifier(name)))
